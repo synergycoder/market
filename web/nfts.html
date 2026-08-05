@@ -51,6 +51,23 @@
           here.
         </p>
       </details>
+      <details>
+        <summary>How are traits/attributes read?</summary>
+        <p class="status">
+          Metadata is read via whichever of gno.land's two officially-sanctioned interfaces the collection
+          implements: <code>TokenURI()</code> (a URI a client fetches/decodes — attributes come along for
+          free, it's all one JSON blob) or <code>TokenMetadata()</code> (an on-chain struct, OpenSea schema).
+          The on-chain path is trickier: a bare <code>TokenMetadata()</code> call renders its
+          <code>Attributes []Trait</code> field as an opaque object reference, not the actual list — the
+          chain's query interface doesn't expand nested list data in a plain function-call query. This page
+          works around that by evaluating a small inline expression per attribute (indexing directly into
+          the slice on the chain side and returning a plain string), which the same query interface renders
+          normally. One accepted trade-off: trait type and value are combined as
+          <span class="mono">type=value</span> in a single query to keep the request count down, so a value
+          that itself contains "=" would split incorrectly — real trait values are simple labels in
+          practice, so this hasn't been an issue.
+        </p>
+      </details>
     </div>
   </section>
 
@@ -72,13 +89,25 @@ let loadGeneration = 0;
 
 function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
 
-function tokenCardHtml(collectionPath, t, name) {
+function tokenCardHtml(collectionPath, t) {
+  const tokenName = t.display?.name || `Token ${t.tokenId}`;
+  const imgHtml = t.display?.image
+    ? `<img src="${escapeHtml(t.display.image)}" alt="${escapeHtml(tokenName)}" />`
+    : `<div class="noimg">image</div>`;
+  const swatch = t.display?.backgroundColor
+    ? `<span class="swatch" style="background:#${escapeHtml(t.display.backgroundColor)}" title="Background #${escapeHtml(t.display.backgroundColor)}"></span>`
+    : "";
+  const descHtml = t.display?.description
+    ? `<div class="meta" title="${escapeHtml(t.display.description)}">${escapeHtml(truncate(t.display.description, 90))}</div>`
+    : "";
   return `
     <div class="card" data-key="${escapeAttr(t.tokenId)}">
-      <div class="noimg" data-img-slot>image</div>
+      ${imgHtml}
       <div class="body">
-        <div class="name">${escapeHtml(name || `Token ${t.tokenId}`)}</div>
+        <div class="name">${escapeHtml(tokenName)}${swatch}</div>
         <div class="meta">${escapeHtml(collectionPath)}</div>
+        ${descHtml}
+        ${attributesHtml(t.display?.attributes)}
         <div class="meta">#${escapeHtml(t.tokenId)} &middot; owner ${truncAddr(t.owner)}</div>
       </div>
     </div>`;
@@ -123,32 +152,12 @@ async function loadTokens() {
     statusEl.textContent = `${tokens.length} token${tokens.length === 1 ? "" : "s"} found.`;
 
     const enriched = await mapLimit(tokens, 6, async (t) => {
-      let tokenName = null;
-      const meta = metadataFromTokenURI(t.tokenURI);
-      if (meta?.name) {
-        tokenName = meta.name;
-      } else if (meta?.__fetch) {
-        try {
-          const res = await fetch(meta.__fetch);
-          tokenName = (await res.json()).name || null;
-        } catch { /* leave blank */ }
-      }
-      return { ...t, tokenName };
+      const display = await fetchTokenDisplayInfo(path, t.tokenId, t.tokenURI);
+      return { ...t, display };
     });
     if (myGeneration !== loadGeneration) return;
 
-    grid.innerHTML = enriched.map((t) => tokenCardHtml(path, t, t.tokenName)).join("");
-    for (const t of enriched) {
-      const card = document.querySelector(`.card[data-key="${CSS.escape(t.tokenId)}"]`);
-      if (!card) continue;
-      const imageUrl = await resolveImageUrl(t.tokenURI);
-      if (imageUrl && myGeneration === loadGeneration) {
-        const img = document.createElement("img");
-        img.src = imageUrl;
-        img.alt = t.tokenName || t.tokenId;
-        card.querySelector("[data-img-slot]")?.replaceWith(img);
-      }
-    }
+    grid.innerHTML = enriched.map((t) => tokenCardHtml(path, t)).join("");
   } catch (err) {
     if (myGeneration === loadGeneration) {
       summaryEl.textContent = "Failed to load: " + err.message;

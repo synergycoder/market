@@ -104,6 +104,12 @@ button.secondary.connected {
   border: 1px solid var(--good);
   font-weight: 600;
 }
+/* Distinct color on hover (not just the "Disconnect" label swap) so the
+   button reads as an action to take, not an inert connected status pill. */
+button.secondary.connected:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 select:disabled { opacity: 0.5; }
 input[type="text"], input[type="number"] {
@@ -144,7 +150,26 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
 .card .noimg { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.8rem; }
 .card .body { padding: 0.7rem 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.35rem; }
 .card .name { font-weight: 600; font-size: 0.9rem; }
+.swatch {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  margin-left: 0.4em;
+  vertical-align: middle;
+}
 .card .meta { color: var(--muted); font-size: 0.75rem; word-break: break-all; }
+.card .traits { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.trait {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.trait b { color: var(--text); font-weight: 600; }
 .card .price { font-weight: 700; }
 .card .actions { margin-top: 0.4rem; display: flex; gap: 0.4rem; }
 .status { font-size: 0.85rem; color: var(--muted); min-height: 1.2em; }

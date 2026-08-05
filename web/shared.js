@@ -149,6 +149,14 @@ function ugnotToGnot(amount) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+function truncate(s, n) {
+  return s && s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+function attributesHtml(attributes) {
+  if (!attributes || attributes.length === 0) return "";
+  const pills = attributes.map((a) => `<span class="trait">${escapeHtml(a.traitType)}: <b>${escapeHtml(a.value)}</b></span>`).join("");
+  return `<div class="traits">${pills}</div>`;
+}
 
 // Two supported tokenURI shapes: an inline `data:application/json[;base64],<data>`
 // blob (what this repo's demo collection returns — no fetch needed), or a
@@ -168,20 +176,184 @@ function metadataFromTokenURI(tokenURI) {
   return { __fetch: tokenURI };
 }
 
-// Resolves a tokenURI down to a displayable image URL, fetching a real URL
-// if that's what the collection returned. Returns null on any failure —
-// callers should fall back to a placeholder, never throw.
-async function resolveImageUrl(tokenURI) {
+// ---------------- on-chain metadata (IGRC721MetadataOnchain) ----------------
+// gno.land's canonical GRC721 reference package (gno.land/p/demo/tokens/grc721)
+// sanctions TWO separate, coexisting metadata interfaces — TokenURI (Ethereum-
+// style, a URI a client fetches/decodes) and TokenMetadata (OpenSea-schema
+// struct, fully on-chain, no fetch needed). A collection may implement
+// either. Real deployed collections use both in the wild (confirmed against
+// gno-nft-minter's own collection, which only implements TokenMetadata) —
+// treating TokenURI as the only source under-reads plenty of real,
+// standards-compliant collections. This section adds TokenMetadata support.
+//
+// Reading it back is harder than TokenURI because vm/qeval's text rendering
+// doesn't expand nested reference-holding values: Metadata.Attributes
+// ([]Trait) comes back as an opaque `slice[ref(<hash>:<idx>)] []...Trait`
+// placeholder, not the actual trait data (confirmed against the real
+// deployed collection: gno.land/r/.../nftminter.TokenMetadata("0000000")).
+// There is no way to dereference that from a plain qeval text query — it
+// would need actual struct-aware decoding, not string scraping. Every OTHER
+// field (Image, ImageData, Description, Name, BackgroundColor, ExternalURL,
+// AnimationURL, YoutubeURL) is a plain string and reads back fine.
+const GRC721_METADATA_FIELDS = [
+  "image", "imageData", "externalURL", "description", "name",
+  null /* attributes — see note above, not extractable this way */,
+  "backgroundColor", "animationURL", "youtubeURL",
+];
+
+// Splits `str` on `sep` at depth 0 only, respecting ()/{}/[] nesting — needed
+// because a qeval struct's fields are naturally comma-separated but a field's
+// own value (e.g. the opaque Attributes slice placeholder) can itself contain
+// parens/brackets that must not be mistaken for a field boundary.
+function splitTopLevel(str, sep) {
+  const parts = [];
+  let depth = 0, cur = "";
+  for (const ch of str) {
+    if (ch === "(" || ch === "{" || ch === "[") depth++;
+    else if (ch === ")" || ch === "}" || ch === "]") depth--;
+    if (ch === sep && depth === 0) { parts.push(cur); cur = ""; } else { cur += ch; }
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
+// Parses one `(<value> <type>)` field chunk from a qeval struct rendering.
+// The type is always the last top-level-space-separated token (package paths
+// and slice types never contain spaces); everything before it is the value.
+// A zero-value string renders with literally nothing between the parens and
+// the type (`( string)`, not `("" string)`) — handled explicitly below.
+function parseGnoStructFieldValue(chunk) {
+  chunk = chunk.trim();
+  if (!chunk.startsWith("(") || !chunk.endsWith(")")) return null;
+  const body = chunk.slice(1, -1);
+  let inQuote = false, lastSpace = -1;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c === '"' && body[i - 1] !== "\\") inQuote = !inQuote;
+    else if (c === " " && !inQuote) lastSpace = i;
+  }
+  if (lastSpace === -1) return null;
+  const value = body.slice(0, lastSpace).trim();
+  if (value === "") return "";
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try { return JSON.parse(value); } catch { return value.slice(1, -1); }
+  }
+  if (/^-?\d+$/.test(value)) return Number(value);
+  return null; // complex/unsupported type (slice, nested struct, ref, ...)
+}
+
+// Parses a `(struct{(v1 t1),(v2 t2),...} pkgpath.Type)` qeval line into
+// {fieldName: value}, using fieldNames for positional field names (pass null
+// for a field to skip it — see GRC721_METADATA_FIELDS above).
+function parseGnoStruct(raw, fieldNames) {
+  const m = /^\(struct\{(.*)\}\s+\S+\)$/.exec(raw.trim());
+  if (!m) return null;
+  const chunks = splitTopLevel(m[1], ",");
+  const result = {};
+  chunks.forEach((chunk, i) => {
+    const name = fieldNames[i];
+    if (name) result[name] = parseGnoStructFieldValue(chunk);
+  });
+  return result;
+}
+
+// Calls TokenMetadata(tid) on a collection's own path and parses the result.
+// Returns null on any error (including the collection not implementing this
+// interface at all) — this is a best-effort secondary read, never a throw.
+async function fetchOnchainMetadata(path, tid) {
+  try {
+    const raw = await qevalOn(path, `TokenMetadata(${JSON.stringify(tid)})`);
+    const lines = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (lines.length < 2 || lines[1] !== "(undefined)") return null; // errored (2nd return value is a non-nil error)
+    return parseGnoStruct(lines[0], GRC721_METADATA_FIELDS);
+  } catch {
+    return null;
+  }
+}
+
+function svgTextToDataUrl(svgText) {
+  return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgText)));
+}
+
+// Reads Metadata.Attributes ([]Trait) for the OpenSea on-chain-metadata path.
+// This is NOT a plain qeval(pkgpath.Func(args)) call — vm/qeval also accepts
+// an arbitrary Gno expression, including a function literal invoked inline,
+// so the slice can be indexed and dereferenced entirely on the chain side,
+// returning a plain string qeval renders normally. That sidesteps the opaque
+// `slice[ref(...)]` placeholder a bare TokenMetadata() call produces (see
+// fetchOnchainMetadata's doc comment) — confirmed working against the real
+// deployed gno-nft-minter collection. General across any collection
+// implementing the official IGRC721MetadataOnchain interface, not specific
+// to that one.
+//
+// TraitType and Value are joined with "=" in ONE inline call rather than
+// fetched separately, to keep the RPC cost to one call per attribute — a
+// value that itself contains "=" would split incorrectly (accepted
+// trade-off; real trait values are simple labels in practice). Deliberately
+// avoids needing any string-escaping helper (strconv.Quote etc.) that the
+// target package may not have imported — the expression only uses `+` and
+// indexing, both language built-ins, so it works regardless of what the
+// collection's own package imports.
+const MAX_ATTRIBUTES_TO_FETCH = 30;
+
+async function fetchOnchainAttributes(path, tid) {
+  try {
+    const countExpr = `func() int { m, _ := TokenMetadata(${JSON.stringify(tid)}); return len(m.Attributes) }()`;
+    const [count] = parseGnoLines(await qevalOn(path, countExpr));
+    if (typeof count !== "number" || count <= 0) return [];
+    const indices = Array.from({ length: Math.min(count, MAX_ATTRIBUTES_TO_FETCH) }, (_, i) => i);
+    const attrs = await mapLimit(indices, 4, async (i) => {
+      const expr = `func() string { m, _ := TokenMetadata(${JSON.stringify(tid)}); t := m.Attributes[${i}]; return t.TraitType + "=" + t.Value }()`;
+      const [combined] = parseGnoLines(await qevalOn(path, expr));
+      const eq = typeof combined === "string" ? combined.indexOf("=") : -1;
+      return eq === -1 ? null : { traitType: combined.slice(0, eq), value: combined.slice(eq + 1) };
+    });
+    return attrs.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Resolves full display info for one token, trying both officially-sanctioned
+// metadata interfaces in turn: TokenURI's JSON first (fetching a real URL if
+// that's what was returned), then falling back to TokenMetadata's on-chain
+// struct (including its Attributes, read via fetchOnchainAttributes above).
+// Never throws — returns whatever fields it could find, nulls/[] for the
+// rest, so callers can render a partial result instead of a placeholder.
+async function fetchTokenDisplayInfo(path, tid, tokenURI) {
+  const empty = { name: null, image: null, description: null, backgroundColor: null, attributes: [] };
   const meta = metadataFromTokenURI(tokenURI);
-  if (meta?.image) return meta.image;
   if (meta?.__fetch) {
     try {
       const res = await fetch(meta.__fetch);
       const json = await res.json();
-      return json.image || null;
-    } catch { return null; }
+      if (json.name || json.image) {
+        return {
+          name: json.name || null, image: json.image || null, description: json.description || null,
+          backgroundColor: json.background_color || null,
+          attributes: (json.attributes || []).map((a) => ({ traitType: a.trait_type, value: a.value })),
+        };
+      }
+    } catch { /* fall through to on-chain metadata */ }
+  } else if (meta?.name || meta?.image) {
+    return {
+      name: meta.name || null, image: meta.image || null, description: meta.description || null,
+      backgroundColor: meta.background_color || null,
+      attributes: (meta.attributes || []).map((a) => ({ traitType: a.trait_type, value: a.value })),
+    };
   }
-  return null;
+
+  const onchain = await fetchOnchainMetadata(path, tid);
+  if (onchain && (onchain.name || onchain.image || onchain.imageData)) {
+    return {
+      name: onchain.name || null,
+      image: onchain.image || (onchain.imageData ? svgTextToDataUrl(onchain.imageData) : null),
+      description: onchain.description || null,
+      backgroundColor: onchain.backgroundColor || null,
+      attributes: await fetchOnchainAttributes(path, tid),
+    };
+  }
+  return empty;
 }
 
 // ---------------- chain-wide NFT collection detection ----------------
