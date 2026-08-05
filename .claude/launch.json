@@ -1,0 +1,22 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gnodev",
+      "runtimeExecutable": "gnodev",
+      "runtimeArgs": [
+        "local",
+        "-C", "/Users/elypina/gno-nft-marketplace",
+        "-web-listener", "127.0.0.1:8899",
+        "-node-rpc-listener", "127.0.0.1:26658"
+      ],
+      "port": 8899
+    },
+    {
+      "name": "gnomarket-web",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "5173", "--directory", "/Users/elypina/gno-nft-marketplace/web"],
+      "port": 5173
+    }
+  ]
+}

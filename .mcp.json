@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gnomcp": {
+      "command": "/Users/elypina/.local/bin/gnomcp",
+      "args": []
+    }
+  }
+}
