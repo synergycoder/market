@@ -23,6 +23,20 @@ var (
 	tokenURIs = avl.NewTree() // tid -> string (data: URI, OpenSea-style JSON metadata)
 )
 
+const (
+	collectionName   = "Test Collection"
+	collectionSymbol = "GTC"
+)
+
+// Name, Symbol, and TokenCount are plain package-level functions (not
+// methods on an internal object) specifically so a generic chain scanner —
+// like gnomarket's own Collections/NFTs browser pages, or anyone else's —
+// can call them directly via vm/qeval on this collection's own path,
+// without needing to know an exported variable name to call a method on.
+func Name() string      { return collectionName }
+func Symbol() string    { return collectionSymbol }
+func TokenCount() int64 { return int64(owners.Size()) }
+
 var placeholderColors = []string{"steelblue", "seagreen", "indianred", "goldenrod", "mediumorchid", "darkslategray"}
 
 // buildMetadataURI returns a self-contained data: URI JSON metadata blob
@@ -116,7 +130,7 @@ func Transfer(cur realm, to address, tid string) {
 // for why that's what makes it safe to hand to an untrusted marketplace realm.
 type marketAdapter struct{}
 
-func (marketAdapter) Name() string                        { return "Test Collection" }
+func (marketAdapter) Name() string                        { return Name() }
 func (marketAdapter) OwnerOf(tid string) (address, error) { return OwnerOf(tid) }
 func (marketAdapter) TokenURI(tid string) (string, error) { return TokenURI(tid) }
 func (marketAdapter) TransferFrom(cur realm, from, to address, tid string) error {

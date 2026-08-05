@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>gnomarket — Collections</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>gnomarket</h1>
+    <div class="sub">NFT collections on this chain &middot; <span id="chainLabel"></span></div>
+  </div>
+  <div style="display:flex; align-items:center; gap:0.6rem;">
+    <select id="networkSelect"></select>
+  </div>
+</header>
+
+<nav class="topnav">
+  <a href="index.html">Marketplace</a>
+  <a href="collections.html" class="active">Collections</a>
+  <a href="nfts.html">NFTs</a>
+</nav>
+
+<main>
+
+  <section>
+    <h2>Collections</h2>
+    <div class="panel">
+      <p class="status">
+        Detected by scanning every deployed realm for GRC721/GRC1155 signatures (the same heuristic
+        gno-observer uses) — not filtered to gnomarket's own registry. A collection showing here isn't
+        necessarily sellable on the <a href="index.html">Marketplace</a> page; that additionally requires
+        its own realm to register an adapter.
+      </p>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+        <span id="scanStatus" class="status"></span>
+        <button id="scanBtn" class="secondary">Scan chain for NFT collections</button>
+      </div>
+      <div id="results"></div>
+    </div>
+  </section>
+
+</main>
+
+<script src="shared.js"></script>
+<script>
+initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
+
+let scanGeneration = 0;
+
+function applyNetwork() {
+  const n = net();
+  document.getElementById("chainLabel").textContent = n.chainId + " @ " + n.rpcUrl;
+  scanGeneration++; // invalidate any scan still running against the previous network
+  document.getElementById("results").innerHTML = "";
+  document.getElementById("scanStatus").textContent = "";
+}
+
+function collectionRowHtml(c) {
+  const netParam = encodeURIComponent(currentNetKey);
+  const pathParam = encodeURIComponent(c.path);
+  const name = c.summary?.name || "(name unavailable)";
+  const symbol = c.summary?.symbol ? ` (${escapeHtml(c.summary.symbol)})` : "";
+  const count = c.summary?.tokenCount != null ? c.summary.tokenCount : "?";
+  const note = c.standard === "GRC1155" ? ' <span class="badge">not tradeable on gnomarket yet</span>' : "";
+  return `
+    <tr class="clickable" data-href="nfts.html?collection=${pathParam}&network=${netParam}">
+      <td class="mono">${escapeHtml(c.path)}</td>
+      <td>${escapeHtml(name)}${symbol}</td>
+      <td><span class="badge">${c.standard}</span>${note}</td>
+      <td>${count}</td>
+      <td><a href="nfts.html?collection=${pathParam}&network=${netParam}">View NFTs &rarr;</a></td>
+    </tr>`;
+}
+
+async function runScan() {
+  const myGeneration = ++scanGeneration;
+  const btn = document.getElementById("scanBtn");
+  const statusEl = document.getElementById("scanStatus");
+  const resultsEl = document.getElementById("results");
+  btn.disabled = true;
+  resultsEl.innerHTML = "";
+  try {
+    const { found, scannedCount, truncated, totalRealms } = await scanChainForCollections((scanned, total) => {
+      if (myGeneration === scanGeneration) statusEl.textContent = `Scanning… ${scanned}/${total}`;
+    });
+    if (myGeneration !== scanGeneration) return; // superseded by a network switch or a newer scan
+
+    if (found.length === 0) {
+      statusEl.textContent = `0 NFT collections detected across ${scannedCount} realms scanned.`;
+      return;
+    }
+
+    statusEl.textContent = `Reading collection details… 0/${found.length}`;
+    let enrichedCount = 0;
+    const enriched = await mapLimit(found, 6, async (c) => {
+      const summary = await fetchCollectionSummary(c.path).catch(() => null);
+      enrichedCount++;
+      if (myGeneration === scanGeneration) statusEl.textContent = `Reading collection details… ${enrichedCount}/${found.length}`;
+      return { ...c, summary };
+    });
+    if (myGeneration !== scanGeneration) return;
+
+    const truncNote = truncated
+      ? ` (showing results from the first ${scannedCount} of ${totalRealms} realms — this is a demo-grade scan, not exhaustive)`
+      : "";
+    statusEl.textContent = `${enriched.length} NFT collection${enriched.length === 1 ? "" : "s"} detected across ${scannedCount} realm${scannedCount === 1 ? "" : "s"} scanned.${truncNote}`;
+
+    resultsEl.innerHTML = `
+      <table class="simple">
+        <thead><tr><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th></th></tr></thead>
+        <tbody>${enriched.map(collectionRowHtml).join("")}</tbody>
+      </table>`;
+    resultsEl.querySelectorAll("tr.clickable").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.tagName === "A") return; // let the explicit link handle its own click
+        location.href = row.dataset.href;
+      });
+    });
+  } catch (err) {
+    if (myGeneration === scanGeneration) statusEl.textContent = "Scan failed: " + err.message;
+  } finally {
+    if (myGeneration === scanGeneration) btn.disabled = false;
+  }
+}
+
+document.getElementById("scanBtn").addEventListener("click", runScan);
+
+applyNetwork();
+</script>
+</body>
+</html>

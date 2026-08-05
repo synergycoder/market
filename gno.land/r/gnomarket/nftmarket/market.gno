@@ -81,6 +81,32 @@ func IsRegistered(collectionID string) bool {
 	return collections.Has(collectionID)
 }
 
+// RegisteredCollectionsCount returns the number of registered collections.
+func RegisteredCollectionsCount() int {
+	return collections.Size()
+}
+
+// GetRegisteredCollectionsPage returns a page of registered collections, one
+// per line: collectionID|displayName. These are the only collections a
+// seller can actually list here — for a frontend's sell-collection picker.
+// Ordered by collectionID (the tree's natural key order); limit is clamped
+// to [1, 100].
+func GetRegisteredCollectionsPage(offset, limit int) string {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	out := ""
+	collections.IterateByOffset(offset, limit, func(key string, value any) bool {
+		nft, ok := value.(market.NFT)
+		if !ok {
+			return false
+		}
+		out += key + "|" + nft.Name() + "\n"
+		return false
+	})
+	return out
+}
+
 // MarketAddress returns this realm's own address — the address a seller
 // must transfer a token to (escrow) before calling List.
 func MarketAddress() address {

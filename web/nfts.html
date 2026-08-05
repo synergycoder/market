@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>gnomarket — NFTs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>gnomarket</h1>
+    <div class="sub">browse NFTs in a collection &middot; <span id="chainLabel"></span></div>
+  </div>
+  <div style="display:flex; align-items:center; gap:0.6rem;">
+    <select id="networkSelect"></select>
+  </div>
+</header>
+
+<nav class="topnav">
+  <a href="index.html">Marketplace</a>
+  <a href="collections.html">Collections</a>
+  <a href="nfts.html" class="active">NFTs</a>
+</nav>
+
+<main>
+
+  <section>
+    <h2>NFTs</h2>
+    <div class="panel">
+      <div class="row">
+        <div class="field" style="flex:3;">
+          <label>Collection path</label>
+          <input type="text" id="collectionInput" placeholder="e.g. gno.land/r/gnomarket/testcollection" />
+        </div>
+        <div class="field">
+          <button id="loadBtn">Load tokens</button>
+        </div>
+      </div>
+      <p class="status" id="summaryStatus"></p>
+      <details>
+        <summary>Why might some tokens be missing?</summary>
+        <p class="status">
+          There's no standard function for "list every token ID in this collection" (BalanceOf tells you
+          how many an address holds, not which ones) — this page probes sequential indices against the ID
+          conventions we know about (this repo's own 1-based decimal, plain 0-based decimal, and
+          <span class="mono">gno.land/p/nt/seqid</span>'s 0-based compact encoding — the last one is common
+          since seqid is a standard package), up to the collection's own <code>TokenCount()</code> if it
+          exposes one, otherwise up to 60. A collection using some other ID scheme won't enumerate correctly
+          here.
+        </p>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <div id="tokensStatus" class="status"></div>
+    <div id="grid" class="grid"></div>
+  </section>
+
+</main>
+
+<script src="shared.js"></script>
+<script>
+initNetworkSelect(document.getElementById("networkSelect"), () => {
+  document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
+  loadGeneration++; // invalidate any load still running against the previous network
+});
+
+let loadGeneration = 0;
+
+function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
+
+function tokenCardHtml(collectionPath, t, name) {
+  return `
+    <div class="card" data-key="${escapeAttr(t.tokenId)}">
+      <div class="noimg" data-img-slot>image</div>
+      <div class="body">
+        <div class="name">${escapeHtml(name || `Token ${t.tokenId}`)}</div>
+        <div class="meta">${escapeHtml(collectionPath)}</div>
+        <div class="meta">#${escapeHtml(t.tokenId)} &middot; owner ${truncAddr(t.owner)}</div>
+      </div>
+    </div>`;
+}
+
+async function loadTokens() {
+  const myGeneration = ++loadGeneration;
+  const path = document.getElementById("collectionInput").value.trim();
+  const summaryEl = document.getElementById("summaryStatus");
+  const statusEl = document.getElementById("tokensStatus");
+  const grid = document.getElementById("grid");
+  const btn = document.getElementById("loadBtn");
+
+  grid.innerHTML = "";
+  statusEl.textContent = "";
+  if (!path) {
+    summaryEl.textContent = "Enter a collection path first — or pick one from the Collections page.";
+    summaryEl.className = "status error";
+    return;
+  }
+
+  btn.disabled = true;
+  summaryEl.textContent = "Reading collection summary…";
+  summaryEl.className = "status";
+  try {
+    const summary = await fetchCollectionSummary(path);
+    if (myGeneration !== loadGeneration) return;
+    const name = summary.name || "(name unavailable — this collection may not expose a plain Name() function)";
+    const countNote = summary.tokenCount != null ? `${summary.tokenCount} tokens (TokenCount)` : "token count unavailable, probing up to 60";
+    summaryEl.textContent = `${name} — ${countNote}`;
+
+    statusEl.textContent = "Loading tokens…";
+    const tokens = await fetchCollectionTokens(path, summary.tokenCount, (i, limit) => {
+      if (myGeneration === loadGeneration) statusEl.textContent = `Checking token ${i} of up to ${limit}…`;
+    });
+    if (myGeneration !== loadGeneration) return;
+
+    if (tokens.length === 0) {
+      statusEl.textContent = "No tokens found (or this collection doesn't expose OwnerOf as a plain package-level function).";
+      return;
+    }
+    statusEl.textContent = `${tokens.length} token${tokens.length === 1 ? "" : "s"} found.`;
+
+    const enriched = await mapLimit(tokens, 6, async (t) => {
+      let tokenName = null;
+      const meta = metadataFromTokenURI(t.tokenURI);
+      if (meta?.name) {
+        tokenName = meta.name;
+      } else if (meta?.__fetch) {
+        try {
+          const res = await fetch(meta.__fetch);
+          tokenName = (await res.json()).name || null;
+        } catch { /* leave blank */ }
+      }
+      return { ...t, tokenName };
+    });
+    if (myGeneration !== loadGeneration) return;
+
+    grid.innerHTML = enriched.map((t) => tokenCardHtml(path, t, t.tokenName)).join("");
+    for (const t of enriched) {
+      const card = document.querySelector(`.card[data-key="${CSS.escape(t.tokenId)}"]`);
+      if (!card) continue;
+      const imageUrl = await resolveImageUrl(t.tokenURI);
+      if (imageUrl && myGeneration === loadGeneration) {
+        const img = document.createElement("img");
+        img.src = imageUrl;
+        img.alt = t.tokenName || t.tokenId;
+        card.querySelector("[data-img-slot]")?.replaceWith(img);
+      }
+    }
+  } catch (err) {
+    if (myGeneration === loadGeneration) {
+      summaryEl.textContent = "Failed to load: " + err.message;
+      summaryEl.className = "status error";
+    }
+  } finally {
+    if (myGeneration === loadGeneration) btn.disabled = false;
+  }
+}
+
+document.getElementById("loadBtn").addEventListener("click", loadTokens);
+document.getElementById("collectionInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") loadTokens();
+});
+
+// Arrive pre-filled from collections.html's "View NFTs" link.
+const params = new URLSearchParams(location.search);
+const netParam = params.get("network");
+if (netParam && NETWORKS[netParam]) {
+  currentNetKey = netParam;
+  try { localStorage.setItem(NETWORK_STORAGE_KEY, currentNetKey); } catch { /* ignore */ }
+  document.getElementById("networkSelect").value = currentNetKey;
+}
+document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
+
+const collectionParam = params.get("collection");
+if (collectionParam) {
+  document.getElementById("collectionInput").value = collectionParam;
+  loadTokens();
+}
+</script>
+</body>
+</html>
