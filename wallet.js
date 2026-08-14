@@ -172,7 +172,7 @@ async function ensureConnected() {
 // Returns { ok, message? } — never throws, so callers can render a status
 // line without their own try/catch boilerplate.
 //
-// listToken below does NOT bundle SetApprovalForAll+List into one
+// Listing an NFT does NOT bundle SetApprovalForAll+List into one
 // DoContract call with two messages, even though that would be the more
 // elegant fix for the confirmation-timing race (and IS confirmed to work
 // at the contract level — verified directly against sapphire-1 with
@@ -182,10 +182,12 @@ async function ensureConnected() {
 // the earlier two-transaction-with-a-short-timeout version hit — meaning
 // either Adena doesn't genuinely bundle multiple /vm.m_call messages into
 // one atomic tx the way it's confirmed to for /bank.MsgSend (see
-// ~/gno-land-dev-notes.md), or does so with a bug. Reverted to two
-// transactions with a long, patient poll instead — the one approach
-// actually proven end-to-end through real Adena (the approval always did
-// land; the only real defect was giving up polling too early).
+// ~/gno-land-dev-notes.md), or does so with a bug. It's also not a single
+// function doing both transactions automatically back-to-back, even as
+// two separate txs: approveForListing/createListing below are deliberately
+// split so createListing only ever fires from a fresh button click, not an
+// automatic continuation after an async poll — see approveForListing's own
+// doc comment for why that distinction turned out to matter.
 async function signAndBroadcast(pkgPath, func, args, sendCoins) {
   const addr = await ensureConnected();
   if (!addr) return { ok: false, message: "Wallet not connected." };
@@ -249,13 +251,54 @@ async function waitForApproval(collectionID, seller, marketAddr, onTick, timeout
   }
 }
 
-// Approves the marketplace (or satellite adapter) for the whole collection,
-// waits for that approval to actually land on-chain, then creates the
-// listing — two transactions. onStatus, if given, is called with a
-// progress message before each Adena prompt and while waiting in between.
-async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus) {
+// Read-only: does collectionID currently show `seller` as having approved
+// `marketAddr` — the exact same check List() itself performs. Used to
+// decide which of the two steps below a seller still needs, both before
+// showing the approve/list UI and after an approve tx to know when it's
+// safe to reveal the list step.
+async function isApprovedForListing(collectionID, seller, marketAddr) {
+  try {
+    const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
+    return !!approvedAll;
+  } catch {
+    return false;
+  }
+}
+
+// Adena's DoContract resolves "success" once a tx is accepted into the
+// mempool (CheckTx), not once it's actually committed to a block — its own
+// response never reliably carries a `height`, only a `hash` (see
+// ~/gno-land-dev-notes.md). Poll isApprovedForListing until it genuinely
+// goes true. 90s / 2s errs long and patient: a real approval that landed
+// but wasn't yet visible was mistaken for a failure at 20s in an earlier
+// version of this function, even though it always did land moments later.
+async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 90000, intervalMs = 2000) {
+  const start = Date.now();
+  const deadline = start + timeoutMs;
+  for (;;) {
+    if (await isApprovedForListing(collectionID, seller, marketAddr)) return true;
+    if (Date.now() >= deadline) return false;
+    onTick?.(Math.round((Date.now() - start) / 1000));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+// Approves the marketplace (or satellite adapter) for the whole collection
+// and waits for that to actually land on-chain — step 1 of 2. Deliberately
+// does NOT go on to create the listing itself: doing that automatically,
+// right after this promise resolves (rather than from a fresh click), is
+// what silently failed in practice — the List transaction either never
+// prompted or never actually applied, even though nothing here threw and
+// the approval genuinely had landed. Browser extensions commonly gate
+// their own popup UI on a recent, real user gesture; an Adena call fired
+// from inside an async continuation after a multi-second poll, with no
+// new click in between, is exactly the shape that gesture requirement
+// would silently swallow. Splitting this into two calls — this one, then
+// createListing() from a SEPARATE button click — fixes that by construction:
+// every DoContract call now traces back to its own fresh click.
+async function approveForListing(collectionID, marketAddr, onStatus) {
   const { target, operator } = await resolveApprovalTarget(collectionID, marketAddr);
-  onStatus?.("Approving marketplace… (1/2, check Adena)");
+  onStatus?.("Approving marketplace… (check Adena)");
   const approveRes = await signAndBroadcast(target, "SetApprovalForAll", [operator, "true"], "");
   if (!approveRes.ok) return approveRes;
 
@@ -264,10 +307,15 @@ async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus
   const confirmed = await waitForApproval(collectionID, seller, marketAddr,
     (elapsedSec) => onStatus?.(`Waiting for the approval to confirm on-chain… (${elapsedSec}s)`));
   if (!confirmed) {
-    return { ok: false, message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. Wait a bit longer and try listing again; the approval likely already went through, so it should skip straight to creating the listing." };
+    return { ok: false, message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. It likely landed; reload and try again in a bit." };
   }
+  return { ok: true };
+}
 
-  onStatus?.("Creating listing… (2/2, check Adena)");
+// Step 2 of 2 — call only from a fresh click, once approveForListing has
+// already confirmed. See approveForListing's own doc comment for why.
+async function createListing(collectionID, tokenId, priceUgnot, onStatus) {
+  onStatus?.("Creating listing… (check Adena)");
   return signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
 }
 

@@ -65,8 +65,8 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js?v=2"></script>
-<script src="wallet.js?v=2"></script>
+<script src="shared.js?v=3"></script>
+<script src="wallet.js?v=3"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); if (unlocked) load(); });
 initWalletPill(document.getElementById("walletPillContainer"));
@@ -85,6 +85,7 @@ const collectionID = params.get("collection") || "";
 const tokenId = params.get("tid") || "";
 
 let state = null; // { info, display, owner, listing, marketAddr, feeMode, feeValue }
+let tradePanelGeneration = 0; // invalidates an in-flight approval check if renderTradePanel runs again (network/wallet switch) before it resolves
 
 async function qevalMarket(expr) { return qevalOn(net().marketPkgPath, expr); }
 
@@ -150,7 +151,7 @@ function renderDetail() {
 
 function fmtGnot(ugnot) { return ugnotToGnot(ugnot) + " GNOT"; }
 
-function renderTradePanel() {
+async function renderTradePanel() {
   if (!state) return;
   const s = state;
   const panel = document.getElementById("tradePanel");
@@ -179,21 +180,42 @@ function renderTradePanel() {
   }
 
   const isOwner = me && s.owner && me === s.owner;
-  if (isOwner) {
+  if (!isOwner) {
+    panel.innerHTML = `<p class="status">Not currently listed for sale.${!me ? " Connect your wallet — if you own this NFT, you'll be able to list it here." : ""}</p>`;
+    return;
+  }
+
+  panel.innerHTML = `<p class="status">Checking approval status…</p>`;
+  const renderGeneration = ++tradePanelGeneration;
+  const approved = s.marketAddr ? await isApprovedForListing(collectionID, me, s.marketAddr) : false;
+  if (renderGeneration !== tradePanelGeneration) return; // a newer render started (network/wallet change) — drop this stale result
+  renderListForm(approved);
+}
+
+// Split into its own render so approveForListing's success handler can
+// swap straight to the "List" step without re-running the approval check
+// (already known true) or re-fetching token state.
+function renderListForm(approved) {
+  const panel = document.getElementById("tradePanel");
+  if (!approved) {
     panel.innerHTML = `
-      <p class="status">Not currently listed. List it for sale:</p>
+      <p class="status">Not currently listed. First, approve this marketplace for your tokens in this collection:</p>
+      <button id="approveBtn">Approve marketplace</button>
+      <p class="status">A second step to set a price and list appears once this confirms.</p>
+    `;
+    document.getElementById("approveBtn").addEventListener("click", doApprove);
+  } else {
+    panel.innerHTML = `
+      <p class="status">Approved — set a price and list:</p>
       <div class="row">
         <div class="field"><label>Price (GNOT)</label><input type="number" id="listPrice" min="0" step="0.000001" placeholder="e.g. 1.5" /></div>
-        <div class="field"><button id="listBtn">Approve &amp; list</button></div>
+        <div class="field"><button id="listBtn">List for sale</button></div>
       </div>
-      <p class="status">Approves this marketplace for all your tokens in this collection, then creates the listing — two transactions, with a short wait in between for the approval to confirm.</p>
     `;
     document.getElementById("listBtn").addEventListener("click", doList);
     document.getElementById("listPrice").addEventListener("keydown", (e) => {
       if (e.key === "Enter") doList();
     });
-  } else {
-    panel.innerHTML = `<p class="status">Not currently listed for sale.${!me ? " Connect your wallet — if you own this NFT, you'll be able to list it here." : ""}</p>`;
   }
 }
 
@@ -217,12 +239,25 @@ async function doCancel() {
   else setTradeStatus(res.message, "status error");
 }
 
+// Step 1 — approve, then wait for confirmation. Deliberately does NOT go
+// on to create the listing itself; see approveForListing's own doc
+// comment (wallet.js) for why that has to be a separate, fresh click.
+async function doApprove() {
+  const btn = document.getElementById("approveBtn");
+  btn.disabled = true;
+  if (!state.marketAddr) { setTradeStatus("Marketplace address not loaded yet.", "status error"); btn.disabled = false; return; }
+  const res = await approveForListing(collectionID, state.marketAddr, (msg) => setTradeStatus(msg));
+  if (!res.ok) { setTradeStatus(res.message, "status error"); btn.disabled = false; return; }
+  setTradeStatus("Approved.", "status ok");
+  renderListForm(true);
+}
+
+// Step 2 — a fresh click on the button renderListForm(true) revealed.
 async function doList() {
   const priceGnot = parseFloat(document.getElementById("listPrice").value);
   if (!(priceGnot > 0)) { setTradeStatus("Enter a positive price first.", "status error"); return; }
-  if (!state.marketAddr) { setTradeStatus("Marketplace address not loaded yet.", "status error"); return; }
   const priceUgnot = Math.round(priceGnot * 1_000_000);
-  const res = await listToken(collectionID, tokenId, priceUgnot, state.marketAddr, (msg) => setTradeStatus(msg));
+  const res = await createListing(collectionID, tokenId, priceUgnot, (msg) => setTradeStatus(msg));
   if (res.ok) { setTradeStatus("Listed.", "status ok"); setTimeout(load, 1500); }
   else setTradeStatus(res.message, "status error");
 }
