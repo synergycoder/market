@@ -32,7 +32,36 @@ on `collectionID` itself. Each adapter exposes two extra functions,
 can discover where and who; their absence just means a collection was
 registered the normal, native way.
 
+## Write GetApproved/IsApprovedForAll defensively — don't just pass through
+
+`nftmarket.gno`'s own `isApproved` check is stricter than `market.NFT`'s
+contract: it `panic`s on **any** error from `GetApproved`, when the
+interface's own doc comment only promises `""` with a nil error for "no
+approval" — and it checks `IsApprovedForAll(owner, marketAddr)` using its
+*own* address, which is never the address a seller was actually told to
+approve once an adapter is in the picture (see above). A real collection
+can differ from both assumptions: `gemsg7adapter`'s first deploy passed
+g7's `GetApproved` straight through, and g7's real implementation *errors*
+(`ErrTokenIdNotHasApproved`) instead of returning an empty address when
+nothing is individually approved — which meant `isApproved` panicked with
+`"token id not approved for anyone"` on every single List/Buy, even for a
+seller who'd correctly called `SetApprovalForAll`. Both bugs are fixable
+entirely inside the adapter (never trust the wrapped collection's error
+convention or the marketplace's own passed-in operator address at face
+value), which is good news given `nftmarket.gno` itself is immutable —
+but only if the adapter is written defensively from the start:
+
+- `GetApproved`: swallow any error from the real collection and return
+  `("", nil)` — never propagate a "not approved" condition as an error.
+- `IsApprovedForAll`: ignore the passed-in `operator` entirely and check
+  whether **this adapter's own address** is approved instead — that's the
+  address that will actually call `TransferFrom`, and the only one a
+  seller was ever told to approve.
+
 ## Existing adapters
 
-- `gemsg7adapter/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
-  ("Gems"), sapphire-1 testnet.
+- `gemsg7adapterv2/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
+  ("Gems"), sapphire-1 testnet. (v1 shipped without the defensive handling
+  above, panicked on every trade, and — being immutable — had to be
+  superseded by a fresh deploy rather than fixed in place; its dead
+  registration is still on-chain but excluded from the frontend/cache.)

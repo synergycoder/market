@@ -69,8 +69,16 @@ const CONFIG = {
 // collectionID nothing was ever registered against). Keyed by real path,
 // one entry per satellite adapter that exists.
 const SATELLITE_ADAPTERS = {
+  // v2: the original gemsg7adapter panicked on every List/Buy
+  // ("token id not approved for anyone") because g7's real GetApproved
+  // errors when nothing is individually approved, and its IsApprovedForAll
+  // forwarded the marketplace's own address instead of checking whether
+  // this adapter itself was approved — both fixed in v2, immutability
+  // meant the only way to fix them was a fresh deploy under a new path.
+  // See gno.land/r/gnomarket/satellites/gemsg7adapter/adapter.gno's own
+  // doc comments for the full detail.
   "gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7":
-    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter",
+    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2",
 };
 
 // The collectionID a "View NFTs"/item link should actually use — the

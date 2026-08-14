@@ -39,7 +39,8 @@ const NETWORKS = {
 // this script only needs to exclude them from the scan, not resolve real
 // paths to adapter paths, which is a frontend link-generation concern).
 const SATELLITE_ADAPTER_PATHS = new Set([
-  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter",
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter", // v1 — superseded, still deployed (immutable), excluded so it doesn't linger as a stale duplicate row
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2",
 ]);
 
 const MAX_REALMS_TO_SCAN = 200;
