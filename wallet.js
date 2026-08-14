@@ -172,19 +172,31 @@ async function ensureConnected() {
 // Returns { ok, message? } — never throws, so callers can render a status
 // line without their own try/catch boilerplate.
 async function signAndBroadcast(pkgPath, func, args, sendCoins) {
+  return signAndBroadcastMulti([{ pkgPath, func, args, sendCoins }]);
+}
+
+// Same as signAndBroadcast, but for two or more /vm.m_call messages signed
+// and broadcast together as ONE transaction/signature — confirmed live
+// (see ~/gno-land-dev-notes.md) that Adena really does support a
+// `messages` array with more than one entry, arriving and executing
+// together as a single atomic transaction. listToken below uses this to
+// bundle SetApprovalForAll with List: List's own approval check then sees
+// the approval that ran moments earlier in the SAME transaction, so
+// there's no confirmation-timing gap to race (or poll for) at all.
+async function signAndBroadcastMulti(calls) {
   const addr = await ensureConnected();
   if (!addr) return { ok: false, message: "Wallet not connected." };
   try {
     const res = await window.adena.DoContract({
-      messages: [{
+      messages: calls.map(({ pkgPath, func, args, sendCoins }) => ({
         type: "/vm.m_call",
         value: { caller: addr, send: sendCoins || "", pkg_path: pkgPath, func, args },
-      }],
+      })),
     });
-    if (res?.status !== "success") throw new Error(res?.message || `${func} was not approved or failed.`);
+    if (res?.status !== "success") throw new Error(res?.message || `${calls[0].func} was not approved or failed.`);
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: `${func} failed: ` + (err?.message || err) };
+    return { ok: false, message: `${calls[0].func} failed: ` + (err?.message || err) };
   }
 }
 
@@ -209,58 +221,21 @@ async function resolveApprovalTarget(collectionID, marketAddr) {
   return { target: collectionID, operator: marketAddr };
 }
 
-// Adena's DoContract resolves "success" once a tx is accepted into the
-// mempool (CheckTx), not once it's actually committed to a block — its own
-// response never reliably carries a `height`, only a `hash` (see
-// ~/gno-land-dev-notes.md). Firing List immediately after a "successful"
-// SetApprovalForAll can race ahead of that approval's real on-chain effect,
-// so List's own approval check reads stale state and panics with
-// "marketplace is not approved to transfer this token" even though the
-// seller did everything right. Poll the exact same read nftmarket.gno's own
-// isApproved() performs — IsApprovedForAll(seller, marketAddr) on
-// collectionID, which for a satellite adapter correctly resolves through to
-// its own approval regardless of the operator address passed in — until it
-// genuinely goes true, or give up after a while.
-// 45s / 2s was chosen after a real timeout at the previous 20s setting —
-// confirmed live that the approval had in fact landed correctly on-chain,
-// just later than 20s of polling allowed for. sapphire-1's block time and
-// RPC propagation aren't guaranteed fast enough for 20s to be a safe
-// margin, so this errs generous; onTick (optional) lets a caller show
-// elapsed time instead of a single static "waiting" message.
-async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 45000, intervalMs = 2000) {
-  const start = Date.now();
-  const deadline = start + timeoutMs;
-  for (;;) {
-    try {
-      const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
-      if (approvedAll) return true;
-    } catch { /* not visible yet, or a transient read error — keep polling */ }
-    if (Date.now() >= deadline) return false;
-    onTick?.(Math.round((Date.now() - start) / 1000));
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
-// Approves the marketplace (or satellite adapter) for the whole collection,
-// waits for that approval to actually land on-chain, then creates the
-// listing — two transactions. onStatus, if given, is called with a
-// progress message before each Adena prompt and while waiting in between.
+// Approves the marketplace (or satellite adapter) for the whole collection
+// and creates the listing in ONE atomic transaction — see
+// signAndBroadcastMulti's own doc comment for why bundling these two
+// messages, rather than sending them as two separate transactions with a
+// wait in between, is what actually fixes the race: there's no gap for
+// List's own approval check to run ahead of the approval it depends on,
+// because they're the same state transition. Also means only one Adena
+// signature instead of two.
 async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus) {
   const { target, operator } = await resolveApprovalTarget(collectionID, marketAddr);
-  onStatus?.("Approving marketplace… (1/2, check Adena)");
-  const approveRes = await signAndBroadcast(target, "SetApprovalForAll", [operator, "true"], "");
-  if (!approveRes.ok) return approveRes;
-
-  onStatus?.("Waiting for the approval to confirm on-chain…");
-  const seller = await ensureConnected();
-  const confirmed = await waitForApproval(collectionID, seller, marketAddr,
-    (elapsedSec) => onStatus?.(`Waiting for the approval to confirm on-chain… (${elapsedSec}s)`));
-  if (!confirmed) {
-    return { ok: false, message: "Approval was sent but is taking longer than usual to confirm on-chain — it will likely still land; wait a bit and try listing again (re-approving is harmless if it already went through)." };
-  }
-
-  onStatus?.("Creating listing… (2/2, check Adena)");
-  return signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
+  onStatus?.("Approving & listing… (check Adena — one signature covers both)");
+  return signAndBroadcastMulti([
+    { pkgPath: target, func: "SetApprovalForAll", args: [operator, "true"] },
+    { pkgPath: net().marketPkgPath, func: "List", args: [collectionID, tokenId, String(priceUgnot)] },
+  ]);
 }
 
 async function cancelListing(collectionID, tokenId) {
