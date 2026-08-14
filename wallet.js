@@ -171,32 +171,35 @@ async function ensureConnected() {
 // Signs and broadcasts a single /vm.m_call message via Adena's DoContract.
 // Returns { ok, message? } — never throws, so callers can render a status
 // line without their own try/catch boilerplate.
+//
+// listToken below does NOT bundle SetApprovalForAll+List into one
+// DoContract call with two messages, even though that would be the more
+// elegant fix for the confirmation-timing race (and IS confirmed to work
+// at the contract level — verified directly against sapphire-1 with
+// gno.land/pkg/gnoclient, bypassing Adena, for both a native registration
+// and a satellite-adapter one). Real-world testing through actual Adena
+// hit the exact same "not approved" panic with the bundled version that
+// the earlier two-transaction-with-a-short-timeout version hit — meaning
+// either Adena doesn't genuinely bundle multiple /vm.m_call messages into
+// one atomic tx the way it's confirmed to for /bank.MsgSend (see
+// ~/gno-land-dev-notes.md), or does so with a bug. Reverted to two
+// transactions with a long, patient poll instead — the one approach
+// actually proven end-to-end through real Adena (the approval always did
+// land; the only real defect was giving up polling too early).
 async function signAndBroadcast(pkgPath, func, args, sendCoins) {
-  return signAndBroadcastMulti([{ pkgPath, func, args, sendCoins }]);
-}
-
-// Same as signAndBroadcast, but for two or more /vm.m_call messages signed
-// and broadcast together as ONE transaction/signature — confirmed live
-// (see ~/gno-land-dev-notes.md) that Adena really does support a
-// `messages` array with more than one entry, arriving and executing
-// together as a single atomic transaction. listToken below uses this to
-// bundle SetApprovalForAll with List: List's own approval check then sees
-// the approval that ran moments earlier in the SAME transaction, so
-// there's no confirmation-timing gap to race (or poll for) at all.
-async function signAndBroadcastMulti(calls) {
   const addr = await ensureConnected();
   if (!addr) return { ok: false, message: "Wallet not connected." };
   try {
     const res = await window.adena.DoContract({
-      messages: calls.map(({ pkgPath, func, args, sendCoins }) => ({
+      messages: [{
         type: "/vm.m_call",
         value: { caller: addr, send: sendCoins || "", pkg_path: pkgPath, func, args },
-      })),
+      }],
     });
-    if (res?.status !== "success") throw new Error(res?.message || `${calls[0].func} was not approved or failed.`);
+    if (res?.status !== "success") throw new Error(res?.message || `${func} was not approved or failed.`);
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: `${calls[0].func} failed: ` + (err?.message || err) };
+    return { ok: false, message: `${func} failed: ` + (err?.message || err) };
   }
 }
 
@@ -221,21 +224,51 @@ async function resolveApprovalTarget(collectionID, marketAddr) {
   return { target: collectionID, operator: marketAddr };
 }
 
-// Approves the marketplace (or satellite adapter) for the whole collection
-// and creates the listing in ONE atomic transaction — see
-// signAndBroadcastMulti's own doc comment for why bundling these two
-// messages, rather than sending them as two separate transactions with a
-// wait in between, is what actually fixes the race: there's no gap for
-// List's own approval check to run ahead of the approval it depends on,
-// because they're the same state transition. Also means only one Adena
-// signature instead of two.
+// Adena's DoContract resolves "success" once a tx is accepted into the
+// mempool (CheckTx), not once it's actually committed to a block — its own
+// response never reliably carries a `height`, only a `hash` (see
+// ~/gno-land-dev-notes.md). Poll the exact same read nftmarket.gno's own
+// isApproved() performs — IsApprovedForAll(seller, marketAddr) on
+// collectionID, which for a satellite adapter correctly resolves through
+// to its own approval regardless of the operator address passed in —
+// until it genuinely goes true. 90s / 2s errs long and patient: a real
+// approval that landed but wasn't yet visible was mistaken for a failure
+// at 20s in an earlier version of this function, even though it always
+// did land moments later.
+async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 90000, intervalMs = 2000) {
+  const start = Date.now();
+  const deadline = start + timeoutMs;
+  for (;;) {
+    try {
+      const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
+      if (approvedAll) return true;
+    } catch { /* not visible yet, or a transient read error — keep polling */ }
+    if (Date.now() >= deadline) return false;
+    onTick?.(Math.round((Date.now() - start) / 1000));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+// Approves the marketplace (or satellite adapter) for the whole collection,
+// waits for that approval to actually land on-chain, then creates the
+// listing — two transactions. onStatus, if given, is called with a
+// progress message before each Adena prompt and while waiting in between.
 async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus) {
   const { target, operator } = await resolveApprovalTarget(collectionID, marketAddr);
-  onStatus?.("Approving & listing… (check Adena — one signature covers both)");
-  return signAndBroadcastMulti([
-    { pkgPath: target, func: "SetApprovalForAll", args: [operator, "true"] },
-    { pkgPath: net().marketPkgPath, func: "List", args: [collectionID, tokenId, String(priceUgnot)] },
-  ]);
+  onStatus?.("Approving marketplace… (1/2, check Adena)");
+  const approveRes = await signAndBroadcast(target, "SetApprovalForAll", [operator, "true"], "");
+  if (!approveRes.ok) return approveRes;
+
+  onStatus?.("Waiting for the approval to confirm on-chain…");
+  const seller = await ensureConnected();
+  const confirmed = await waitForApproval(collectionID, seller, marketAddr,
+    (elapsedSec) => onStatus?.(`Waiting for the approval to confirm on-chain… (${elapsedSec}s)`));
+  if (!confirmed) {
+    return { ok: false, message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. Wait a bit longer and try listing again; the approval likely already went through, so it should skip straight to creating the listing." };
+  }
+
+  onStatus?.("Creating listing… (2/2, check Adena)");
+  return signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
 }
 
 async function cancelListing(collectionID, tokenId) {

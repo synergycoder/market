@@ -65,8 +65,8 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js?v=1"></script>
-<script src="wallet.js?v=1"></script>
+<script src="shared.js?v=2"></script>
+<script src="wallet.js?v=2"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); if (unlocked) load(); });
 initWalletPill(document.getElementById("walletPillContainer"));
@@ -186,7 +186,7 @@ function renderTradePanel() {
         <div class="field"><label>Price (GNOT)</label><input type="number" id="listPrice" min="0" step="0.000001" placeholder="e.g. 1.5" /></div>
         <div class="field"><button id="listBtn">Approve &amp; list</button></div>
       </div>
-      <p class="status">Approves this marketplace for all your tokens in this collection and creates the listing — one signature covers both.</p>
+      <p class="status">Approves this marketplace for all your tokens in this collection, then creates the listing — two transactions, with a short wait in between for the approval to confirm.</p>
     `;
     document.getElementById("listBtn").addEventListener("click", doList);
     document.getElementById("listPrice").addEventListener("keydown", (e) => {
