@@ -221,14 +221,22 @@ async function resolveApprovalTarget(collectionID, marketAddr) {
 // collectionID, which for a satellite adapter correctly resolves through to
 // its own approval regardless of the operator address passed in — until it
 // genuinely goes true, or give up after a while.
-async function waitForApproval(collectionID, seller, marketAddr, timeoutMs = 20000, intervalMs = 1500) {
-  const deadline = Date.now() + timeoutMs;
+// 45s / 2s was chosen after a real timeout at the previous 20s setting —
+// confirmed live that the approval had in fact landed correctly on-chain,
+// just later than 20s of polling allowed for. sapphire-1's block time and
+// RPC propagation aren't guaranteed fast enough for 20s to be a safe
+// margin, so this errs generous; onTick (optional) lets a caller show
+// elapsed time instead of a single static "waiting" message.
+async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 45000, intervalMs = 2000) {
+  const start = Date.now();
+  const deadline = start + timeoutMs;
   for (;;) {
     try {
       const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
       if (approvedAll) return true;
     } catch { /* not visible yet, or a transient read error — keep polling */ }
     if (Date.now() >= deadline) return false;
+    onTick?.(Math.round((Date.now() - start) / 1000));
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
@@ -245,9 +253,10 @@ async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus
 
   onStatus?.("Waiting for the approval to confirm on-chain…");
   const seller = await ensureConnected();
-  const confirmed = await waitForApproval(collectionID, seller, marketAddr);
+  const confirmed = await waitForApproval(collectionID, seller, marketAddr,
+    (elapsedSec) => onStatus?.(`Waiting for the approval to confirm on-chain… (${elapsedSec}s)`));
   if (!confirmed) {
-    return { ok: false, message: "Approval was sent but hasn't confirmed on-chain yet — wait a few seconds and try listing again." };
+    return { ok: false, message: "Approval was sent but is taking longer than usual to confirm on-chain — it will likely still land; wait a bit and try listing again (re-approving is harmless if it already went through)." };
   }
 
   onStatus?.("Creating listing… (2/2, check Adena)");
