@@ -4,13 +4,14 @@
 <meta charset="utf-8" />
 <title>gnomarket — NFTs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
 <header>
   <div>
-    <h1>gnomarket</h1>
+    <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket</h1>
     <div class="sub">browse NFTs in a collection &middot; <span id="chainLabel"></span></div>
   </div>
   <div style="display:flex; align-items:center; gap:0.6rem;">
@@ -121,7 +122,11 @@ function tokenCardHtml(collectionPath, t) {
   const descHtml = t.display?.description
     ? `<div class="meta" title="${escapeHtml(t.display.description)}">${escapeHtml(truncate(t.display.description, 90))}</div>`
     : "";
-  const href = `nft.html?collection=${encodeURIComponent(collectionPath)}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
+  // Resolve to a satellite adapter's collectionID when one fronts this
+  // path (see SATELLITE_ADAPTERS in shared.js) — covers browsing here by
+  // typing a real path directly, not just arriving via a Collections page
+  // link that already resolved it.
+  const href = `nft.html?collection=${encodeURIComponent(marketplaceCollectionId(collectionPath))}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
   return `
     <a class="card-link" href="${href}">
       <div class="card" data-key="${escapeAttr(t.tokenId)}">

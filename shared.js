@@ -59,6 +59,27 @@ const CONFIG = {
   ownerAddress: "g18pph34e6e70whfqzk6m4kv6cdtl47nm4vlfl4x",
 };
 
+// Real collection path -> the satellite adapter that fronts it for the
+// marketplace (see gno.land/r/gnomarket/satellites/README.md). Browsing a
+// collection naturally (Collections -> NFTs -> a token) discovers tokens
+// under their REAL path, but the marketplace only knows the adapter's
+// registered collectionID — a "List for sale"/"Buy" reachable through that
+// natural flow needs its links built with the adapter's path instead, or
+// the listing would silently look invisible (searched for under a
+// collectionID nothing was ever registered against). Keyed by real path,
+// one entry per satellite adapter that exists.
+const SATELLITE_ADAPTERS = {
+  "gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7":
+    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter",
+};
+
+// The collectionID a "View NFTs"/item link should actually use — the
+// adapter's path when the real path has one fronting it, otherwise the
+// real path itself (a natively-registered or unregistered collection).
+function marketplaceCollectionId(realPath) {
+  return SATELLITE_ADAPTERS[realPath] || realPath;
+}
+
 const NETWORK_STORAGE_KEY = "gnomarket:selectedNetwork";
 
 // Local's RPC (http://127.0.0.1:26657) only exists on the machine actually
@@ -472,7 +493,14 @@ async function scanChainForCollections(onProgress, onFound) {
         .filter((name) => name.endsWith(".gno") && !name.endsWith("_test.gno"));
       const bodies = await mapLimit(filenames, 4, (name) => abciQuery(rpcUrl, "vm/qfile", `${path}/${name}`).catch(() => ""));
       const standard = detectStandard(bodies);
-      if (standard) {
+      // A satellite adapter (see SATELLITE_ADAPTERS above) forwards
+      // OwnerOf/TokenURI/etc to a real collection and mentions grc721 in
+      // its own imports — it trips this same detector and would otherwise
+      // show up as a second, duplicate "collection" alongside the real
+      // one, with identical tokens. It isn't a collection to browse in its
+      // own right, just a redirect target, so skip it here.
+      const isAdapterPath = Object.values(SATELLITE_ADAPTERS).includes(path);
+      if (standard && !isAdapterPath) {
         const item = { path, standard };
         found.push(item);
         await onFound?.(item);

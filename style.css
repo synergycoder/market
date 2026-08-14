@@ -40,7 +40,8 @@ header {
   padding: 1rem 1.5rem;
   flex-wrap: wrap;
 }
-header h1 { font-size: 1.15rem; margin: 0; }
+header h1 { font-size: 1.15rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; }
+header h1 .logo-mark { width: 1.3em; height: 1.3em; flex: none; }
 header .sub { color: var(--muted); font-size: 0.85rem; }
 nav.topnav {
   display: flex;
@@ -272,6 +273,7 @@ footer.site-footer p:last-child { margin-bottom: 0; }
   padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--accent); margin-bottom: 2rem;
 }
+.splash-logo { width: 3rem; height: 3rem; margin-bottom: 0.75rem; }
 .splash-mark { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 0.75rem; }
 .splash-tagline { color: var(--muted); font-size: 1.05rem; margin: 0 0 2rem; }
 .splash-links { display: flex; gap: 1.25rem; justify-content: center; font-size: 0.9rem; }

@@ -29,6 +29,13 @@ const NETWORKS = {
   "gnoland1": { rpcUrl: "https://rpc.gno.land", label: "Betanet (gnoland1)" },
 };
 
+// Kept in sync by hand with shared.js's SATELLITE_ADAPTERS (values only —
+// this script only needs to exclude them from the scan, not resolve real
+// paths to adapter paths, which is a frontend link-generation concern).
+const SATELLITE_ADAPTER_PATHS = new Set([
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter",
+]);
+
 const MAX_REALMS_TO_SCAN = 200;
 const MAX_SEQUENTIAL_PROBE = 60;
 const CONSECUTIVE_MISS_LIMIT = 5;
@@ -117,7 +124,9 @@ async function scanRealmPaths(rpcUrl) {
         .filter((name) => name.endsWith(".gno") && !name.endsWith("_test.gno"));
       const bodies = await mapLimit(filenames, 4, (name) => abciQuery(rpcUrl, "vm/qfile", `${p}/${name}`).catch(() => ""));
       const standard = detectStandard(bodies);
-      if (standard) found.push({ path: p, standard });
+      // See SATELLITE_ADAPTER_PATHS's own comment — an adapter forwards to
+      // a real collection and would otherwise show up as a duplicate.
+      if (standard && !SATELLITE_ADAPTER_PATHS.has(p)) found.push({ path: p, standard });
     } catch {
       // unreadable package — skip
     }

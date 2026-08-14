@@ -4,13 +4,14 @@
 <meta charset="utf-8" />
 <title>gnomarket — Collections</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
 <header>
   <div>
-    <h1>gnomarket</h1>
+    <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket</h1>
     <div class="sub">NFT collections on this chain &middot; <span id="chainLabel"></span></div>
   </div>
   <div style="display:flex; align-items:center; gap:0.6rem;">
@@ -92,7 +93,15 @@ function applyNetwork() {
 // scripts/refresh-collections.mjs's doc comment).
 function collectionRowHtml(c) {
   const netParam = encodeURIComponent(currentNetKey);
-  const pathParam = encodeURIComponent(c.path);
+  // The link goes to whatever collectionID the marketplace actually knows
+  // this collection by — its own real path, unless a satellite adapter
+  // fronts it (see SATELLITE_ADAPTERS in shared.js), in which case every
+  // downstream link built from here (NFT cards, item pages) needs to carry
+  // the adapter's path instead, or "List"/"Buy" would look invisible. The
+  // displayed realm text below stays the real path regardless — link
+  // target and displayed identity are allowed to differ, but only the
+  // link needs to be "correct" for trading to work.
+  const pathParam = encodeURIComponent(marketplaceCollectionId(c.path));
   const name = c.name || "(name unavailable)";
   const symbol = c.symbol ? ` (${escapeHtml(c.symbol)})` : "";
   const count = c.tokenCount != null ? c.tokenCount : "?";
@@ -101,6 +110,10 @@ function collectionRowHtml(c) {
   const thumb = c.image
     ? `<img src="${escapeHtml(c.image)}" alt="" class="collection-thumb" />`
     : `<div class="collection-thumb noimg"></div>`;
+  // Filled in by refreshHoldings() once a wallet is connected — checked
+  // against c.path (the REAL contract), not the resolved marketplace
+  // collectionID, since BalanceOf is a plain read against whatever
+  // actually holds the tokens, independent of any adapter.
   return `
     <tr class="clickable" data-href="nfts.html?collection=${pathParam}&network=${netParam}">
       <td>${thumb}</td>
@@ -109,12 +122,40 @@ function collectionRowHtml(c) {
       <td><span class="badge">${c.standard}</span>${note}</td>
       <td>${count}</td>
       <td>${holders}</td>
+      <td class="you-hold" data-path="${escapeHtml(c.path)}">&mdash;</td>
       <td><a href="nfts.html?collection=${pathParam}&network=${netParam}">View NFTs &rarr;</a></td>
     </tr>`;
 }
 
 const RESULTS_TABLE_HEAD =
-  `<table class="simple"><thead><tr><th></th><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th>Holders</th><th></th></tr></thead><tbody id="resultsBody"></tbody></table>`;
+  `<table class="simple"><thead><tr><th></th><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th>Holders</th><th>You hold</th><th></th></tr></thead><tbody id="resultsBody"></tbody></table>`;
+
+// Best-effort BalanceOf(walletAddress) per visible row — not every
+// collection exposes BalanceOf (it's a standard GRC721 convention, not
+// something market.NFT itself requires), so a failed read just leaves the
+// placeholder rather than erroring the row. Only runs once per row per
+// connection (data-checked guards against re-querying rows already done
+// when a new batch is appended during a live scan).
+async function refreshHoldings() {
+  if (!walletAddress) return;
+  const cells = Array.from(document.querySelectorAll("#results .you-hold:not([data-checked])"));
+  await mapLimit(cells, 6, async (cell) => {
+    cell.dataset.checked = "1";
+    try {
+      const [balance] = parseGnoLines(await qevalOn(cell.dataset.path, `BalanceOf(${JSON.stringify(walletAddress)})`));
+      cell.textContent = typeof balance === "number" && balance > 0 ? String(balance) : "—";
+    } catch {
+      cell.textContent = "—";
+    }
+  });
+}
+document.addEventListener("wallet:connected", refreshHoldings);
+document.addEventListener("wallet:disconnected", () => {
+  document.querySelectorAll("#results .you-hold").forEach((cell) => {
+    cell.textContent = "—";
+    delete cell.dataset.checked;
+  });
+});
 
 function wireRowClicks() {
   document.querySelectorAll("#results tr.clickable").forEach((row) => {
@@ -133,6 +174,7 @@ function renderTable(items) {
   resultsEl.innerHTML = RESULTS_TABLE_HEAD;
   document.getElementById("resultsBody").innerHTML = items.map(collectionRowHtml).join("");
   wireRowClicks();
+  refreshHoldings();
 }
 
 function appendRow(item) {
@@ -140,6 +182,7 @@ function appendRow(item) {
   if (!document.getElementById("resultsBody")) resultsEl.innerHTML = RESULTS_TABLE_HEAD;
   document.getElementById("resultsBody").insertAdjacentHTML("beforeend", collectionRowHtml(item));
   wireRowClicks();
+  refreshHoldings();
 }
 
 function relativeTime(iso) {
