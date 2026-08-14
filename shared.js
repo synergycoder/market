@@ -5,6 +5,14 @@
 
 // ---------------- networks ----------------
 
+// marketPkgPath is per-network, not a single global constant: on real
+// gno.land chains, deploying under a custom string namespace like
+// "gnomarket" requires that name to be registered via a GovDAO-whitelisted
+// controller (gno.land/r/sys/names + r/sys/users) — not something to rush
+// through for a testnet trial deploy. The sapphire-1 deploy instead lives
+// under the deploying key's own address namespace (gno.land/r/{addr}/*),
+// which gno.land always permits with no registration at all. Local gnodev
+// has no such restriction, so it keeps the clean "gnomarket" path.
 const NETWORKS = {
   local: {
     // Points at the shared local gnodev instance also used by the
@@ -16,6 +24,7 @@ const NETWORKS = {
     rpcUrl: "http://127.0.0.1:26657",
     chainId: "dev",
     gnowebUrl: "http://localhost:8888",
+    marketPkgPath: "gno.land/r/gnomarket/nftmarket",
     marketplaceDeployed: true,
   },
   testnet: {
@@ -26,19 +35,20 @@ const NETWORKS = {
     rpcUrl: "https://rpc.sapphire.testnets.gno.land",
     chainId: "sapphire-1",
     gnowebUrl: "https://sapphire.testnets.gno.land",
-    marketplaceDeployed: false,
+    marketPkgPath: "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/nftmarket",
+    marketplaceDeployed: true,
   },
   betanet: {
     label: "Betanet (gnoland1)",
     rpcUrl: "https://rpc.gno.land",
     chainId: "gnoland1",
     gnowebUrl: "https://gno.land",
+    marketPkgPath: "gno.land/r/gnomarket/nftmarket",
     marketplaceDeployed: false,
   },
 };
 
 const CONFIG = {
-  marketPkgPath: "gno.land/r/gnomarket/nftmarket",
   adenaAppName: "gnomarket",
   // While gnomarket is in private testing, the full app is only shown to
   // this address — everyone else (and anyone not connected) sees the

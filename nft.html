@@ -85,7 +85,7 @@ const tokenId = params.get("tid") || "";
 
 let state = null; // { info, display, owner, listing, marketAddr, feeMode, feeValue }
 
-async function qevalMarket(expr) { return qevalOn(CONFIG.marketPkgPath, expr); }
+async function qevalMarket(expr) { return qevalOn(net().marketPkgPath, expr); }
 
 async function fetchListingFor(collectionID, tokenId) {
   if (!net().marketplaceDeployed) return null;
@@ -212,14 +212,14 @@ function setTradeStatus(msg, cls = "status") {
 
 async function doBuy() {
   setTradeStatus("Waiting for approval in Adena…");
-  const res = await signAndBroadcast(CONFIG.marketPkgPath, "Buy", [collectionID, tokenId], `${state.listing.price}ugnot`);
+  const res = await signAndBroadcast(net().marketPkgPath, "Buy", [collectionID, tokenId], `${state.listing.price}ugnot`);
   if (res.ok) { setTradeStatus("Purchased.", "status ok"); setTimeout(load, 1500); }
   else setTradeStatus(res.message, "status error");
 }
 
 async function doCancel() {
   setTradeStatus("Waiting for approval in Adena…");
-  const res = await signAndBroadcast(CONFIG.marketPkgPath, "Cancel", [collectionID, tokenId], "");
+  const res = await signAndBroadcast(net().marketPkgPath, "Cancel", [collectionID, tokenId], "");
   if (res.ok) { setTradeStatus("Listing cancelled.", "status ok"); setTimeout(load, 1500); }
   else setTradeStatus(res.message, "status error");
 }
@@ -235,7 +235,7 @@ async function doList() {
   if (!res.ok) { setTradeStatus(res.message, "status error"); return; }
 
   setTradeStatus("Creating listing… (2/2, check Adena)");
-  res = await signAndBroadcast(CONFIG.marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
+  res = await signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
   if (res.ok) { setTradeStatus("Listed.", "status ok"); setTimeout(load, 1500); }
   else setTradeStatus(res.message, "status error");
 }

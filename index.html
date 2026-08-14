@@ -146,8 +146,8 @@ let allListings = []; // enriched, unfiltered — sort/filter re-render from thi
 function applyNetwork() {
   const n = net();
   document.getElementById("chainLabel").textContent = n.chainId + " @ " + n.rpcUrl;
-  document.getElementById("pkgpathLabel").textContent = CONFIG.marketPkgPath;
-  document.getElementById("gnowebLink").href = n.gnowebUrl + "/r/" + CONFIG.marketPkgPath.replace(/^gno\.land\/r\//, "");
+  document.getElementById("pkgpathLabel").textContent = net().marketPkgPath;
+  document.getElementById("gnowebLink").href = n.gnowebUrl + "/r/" + net().marketPkgPath.replace(/^gno\.land\/r\//, "");
   updateGnoConnectMeta();
 
   const banner = document.getElementById("deployBanner");
@@ -167,7 +167,7 @@ function applyNetwork() {
 // ---------------- reads: this marketplace ----------------
 
 async function qeval(expr) {
-  return qevalOn(CONFIG.marketPkgPath, expr);
+  return qevalOn(net().marketPkgPath, expr);
 }
 
 async function fetchListings() {
