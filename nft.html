@@ -65,10 +65,11 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js?v=6"></script>
-<script src="wallet.js?v=6"></script>
+<script src="shared.js?v=7"></script>
+<script src="wallet.js?v=7"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); if (unlocked) load(); });
+updateGnoConnectMeta(); // initNetworkSelect only calls this on a later manual switch — a fresh load otherwise leaves the HTML's own hardcoded dev/localhost defaults in place, telling Adena the wrong network
 initWalletPill(document.getElementById("walletPillContainer"));
 initFooter(document.getElementById("siteFooter"));
 document.addEventListener("wallet:connected", () => { if (unlocked) renderTradePanel(); });
