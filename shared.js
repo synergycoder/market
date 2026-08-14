@@ -532,6 +532,32 @@ async function fetchCollectionSummary(path) {
   return summary;
 }
 
+// Best-effort: resolve just the first token's display info (mainly its
+// image) — a lighter cousin of fetchCollectionTokens for callers that only
+// want a thumbnail, not the whole collection. Tries a handful of low
+// candidate indices and stops at the first one that resolves, so a
+// "Scan now" live scan can show a thumbnail per collection as it's found
+// instead of leaving every row imageless (that used to be deferred
+// entirely to the server-side cache — see scripts/refresh-collections.mjs
+// — but a manual, user-initiated scan over a small, already-filtered
+// candidate list is a bounded, reasonable cost to pay live).
+const FIRST_TOKEN_PROBE_LIMIT = 8;
+
+async function fetchFirstTokenImage(path) {
+  for (let i = 0; i < FIRST_TOKEN_PROBE_LIMIT; i++) {
+    for (const tid of candidateTokenIds(i)) {
+      try {
+        const [owner] = parseGnoLines(await qevalOn(path, `OwnerOf(${JSON.stringify(tid)})`));
+        if (!owner) continue;
+        const tokenURI = await fetchTokenURI(path, tid);
+        const display = await fetchTokenDisplayInfo(path, tid, tokenURI);
+        return display.image || null;
+      } catch { /* try the next candidate ID shape */ }
+    }
+  }
+  return null;
+}
+
 // ---------------- chain-wide NFT token enumeration ----------------
 // There is no standard enumeration function for "give me every token ID in
 // this collection" (see ~/gno-land-dev-notes.md) — BalanceOf tells you how

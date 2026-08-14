@@ -110,6 +110,12 @@ function collectionRowHtml(c) {
   const thumb = c.image
     ? `<img src="${escapeHtml(c.image)}" alt="" class="collection-thumb" />`
     : `<div class="collection-thumb noimg"></div>`;
+  // createdAt only ever comes from the cache (see refresh-collections.mjs —
+  // it's resolved via a tx-indexer GraphQL query, not something a browser
+  // can look up: betanet's indexer has no CORS headers, and there's no
+  // vm/* RPC path that returns a deploy date at all). A live-scanned row
+  // just shows "—" rather than a wrong or missing-looking blank.
+  const created = c.createdAt ? formatDate(c.createdAt) : "—";
   // Filled in by refreshHoldings() once a wallet is connected — checked
   // against c.path (the REAL contract), not the resolved marketplace
   // collectionID, since BalanceOf is a plain read against whatever
@@ -123,12 +129,21 @@ function collectionRowHtml(c) {
       <td>${count}</td>
       <td>${holders}</td>
       <td class="you-hold" data-path="${escapeHtml(c.path)}">&mdash;</td>
+      <td class="meta">${created}</td>
       <td><a href="nfts.html?collection=${pathParam}&network=${netParam}">View NFTs &rarr;</a></td>
     </tr>`;
 }
 
+function formatDate(iso) {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return "—";
+  }
+}
+
 const RESULTS_TABLE_HEAD =
-  `<table class="simple"><thead><tr><th></th><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th>Holders</th><th>You hold</th><th></th></tr></thead><tbody id="resultsBody"></tbody></table>`;
+  `<table class="simple"><thead><tr><th></th><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th>Holders</th><th>You hold</th><th>Created</th><th></th></tr></thead><tbody id="resultsBody"></tbody></table>`;
 
 // Best-effort BalanceOf(walletAddress) per visible row — not every
 // collection exposes BalanceOf (it's a standard GRC721 convention, not
@@ -239,15 +254,22 @@ async function runScan() {
         if (myGeneration !== scanGeneration) return; // superseded — stop enriching/rendering for a dead scan
         const summary = await fetchCollectionSummary(item.path).catch(() => ({ name: null, symbol: null, tokenCount: null }));
         if (myGeneration !== scanGeneration) return;
-        // Drop confirmed-empty GRC721s (a real 0, not just "couldn't read
-        // it") — this is what actually filters out things like gnoswap's
-        // position/v1 and staker realms, which mention grc721 in source
-        // but never mint anything. Leaves GRC1155 alone (TokenCount isn't
-        // part of that standard here) and leaves an unreadable count alone
-        // too, since null just means "unknown," not "empty."
-        if (item.standard === "GRC721" && summary.tokenCount === 0) return;
+        // Drop GRC721s with no confirmed token count — either a real 0
+        // (never minted anything) or unreadable entirely (no TokenCount()
+        // at all). Both describe something that isn't a genuine browsable
+        // collection: gnoswap's position/v1 and staker never mint, and
+        // gnoswap/gnft, despite having real holders, doesn't expose a
+        // count either — if we can't even say how many tokens exist, it
+        // doesn't belong in a collections list. Leaves GRC1155 alone
+        // (TokenCount isn't part of that standard here).
+        if (item.standard === "GRC721" && (summary.tokenCount == null || summary.tokenCount === 0)) return;
         count++;
-        appendRow({ ...item, ...summary, holderCount: null, image: null });
+        // Thumbnail only for GRC721 (holder/image logic is per-token-owner,
+        // GRC1155's balance-per-holder shape isn't enumerated here yet) —
+        // best-effort, a failed/slow lookup shouldn't block the row itself.
+        const image = item.standard === "GRC721" ? await fetchFirstTokenImage(item.path).catch(() => null) : null;
+        if (myGeneration !== scanGeneration) return;
+        appendRow({ ...item, ...summary, holderCount: null, image });
       }
     );
     if (myGeneration !== scanGeneration) return; // superseded by a network switch or a newer scan

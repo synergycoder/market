@@ -25,8 +25,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
 
 const NETWORKS = {
-  "sapphire-1": { rpcUrl: "https://rpc.sapphire.testnets.gno.land", label: "Testnet (sapphire-1)" },
-  "gnoland1": { rpcUrl: "https://rpc.gno.land", label: "Betanet (gnoland1)" },
+  "sapphire-1": {
+    rpcUrl: "https://rpc.sapphire.testnets.gno.land", label: "Testnet (sapphire-1)",
+    indexerUrl: "https://indexer.sapphire.testnets.gno.land/graphql/query",
+  },
+  "gnoland1": {
+    rpcUrl: "https://rpc.gno.land", label: "Betanet (gnoland1)",
+    indexerUrl: "https://indexer.gno.land/graphql/query",
+  },
 };
 
 // Kept in sync by hand with shared.js's SATELLITE_ADAPTERS (values only —
@@ -142,6 +148,61 @@ async function fetchCollectionSummary(rpcUrl, p) {
     qevalOn(rpcUrl, p, "TokenCount()").then((r) => { summary.tokenCount = parseGnoLines(r)[0] ?? null; }).catch(() => {}),
   ]);
   return summary;
+}
+
+// ---------------- creation date (via tx-indexer, not vm/* RPC) ----------------
+// gno.land's vm/* query surface (qpaths/qfile/qeval) has no notion of "when
+// was this deployed" at all — confirmed by trying it directly, nothing there
+// returns a height or timestamp for a package. The GraphQL tx-indexer does:
+// every deploy is a MsgAddPackage transaction, findable by its own package
+// path, which carries a block_height; a second query resolves that height to
+// a wall-clock time. Both queries verified live against sapphire-1's real
+// indexer before wiring this in. Server-side only (Node/CI) — betanet's
+// indexer has no CORS headers, so this can't run from a browser, and that's
+// the real reason the live client-side scan (shared.js) doesn't attempt it
+// at all rather than half-supporting it.
+//
+// Genesis-deployed packages (loaded at chain start, not via a real tx) have
+// no MsgAddPackage to find — fetchCreationHeight returns null for those, and
+// the collection just sorts to the end / shows no date, rather than guessing.
+async function graphqlQuery(indexerUrl, query, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(indexerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+      signal: controller.signal,
+    });
+    const json = await res.json();
+    if (json.errors?.length) throw new Error(json.errors[0].message);
+    return json.data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchCreationHeight(indexerUrl, p) {
+  if (!indexerUrl) return null;
+  try {
+    const query = `query { getTransactions(where: { success: { eq: true }, messages: { route: { eq: "vm" }, typeUrl: { eq: "add_package" }, value: { MsgAddPackage: { package: { path: { eq: ${JSON.stringify(p)} } } } } } }) { block_height } }`;
+    const data = await graphqlQuery(indexerUrl, query);
+    return data?.getTransactions?.[0]?.block_height ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBlockTime(indexerUrl, height) {
+  if (!indexerUrl || height == null) return null;
+  try {
+    const query = `query { getBlocks(where: { height: { eq: ${height} } }) { time } }`;
+    const data = await graphqlQuery(indexerUrl, query);
+    return data?.getBlocks?.[0]?.time ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------- token enumeration: holder count + first-minted thumbnail ----------------
@@ -283,7 +344,7 @@ async function fetchFirstTokenImage(rpcUrl, p, tid) {
 
 // ---------------- per-network run ----------------
 
-async function refreshNetwork(chainId, { rpcUrl, label }) {
+async function refreshNetwork(chainId, { rpcUrl, label, indexerUrl }) {
   console.log(`[${chainId}] scanning realms...`);
   const { found, scannedCount, totalRealms, truncated } = await scanRealmPaths(rpcUrl);
   console.log(`[${chainId}] ${found.length} collection(s) found across ${scannedCount}/${totalRealms} realms scanned${truncated ? " (truncated)" : ""}`);
@@ -303,19 +364,35 @@ async function refreshNetwork(chainId, { rpcUrl, label }) {
         console.warn(`[${chainId}] token scan failed for ${c.path}: ${err.message}`);
       }
     }
-    console.log(`[${chainId}]   ${c.path} — ${summary.name || "(unnamed)"} · ${summary.tokenCount ?? "?"} tokens · ${holderCount ?? "?"} holders`);
-    return { ...c, ...summary, holderCount, image };
+    const blockHeight = await fetchCreationHeight(indexerUrl, c.path);
+    const createdAt = await fetchBlockTime(indexerUrl, blockHeight);
+    console.log(`[${chainId}]   ${c.path} — ${summary.name || "(unnamed)"} · ${summary.tokenCount ?? "?"} tokens · ${holderCount ?? "?"} holders · ${createdAt || "no creation date"}`);
+    return { ...c, ...summary, holderCount, image, blockHeight, createdAt };
   });
 
-  // Drop confirmed-empty GRC721s — a real 0 from TokenCount(), not just an
-  // unreadable count — which is what actually filters out realms like
-  // gnoswap's position/v1 and staker: they mention grc721 in source (enough
-  // to pass detectStandard) but never mint anything. Leaves GRC1155 alone
-  // (TokenCount isn't part of that standard here) and leaves an unreadable
-  // count alone too, since null means "unknown," not "empty."
-  const empty = collections.filter((c) => c.standard === "GRC721" && c.tokenCount === 0);
-  const kept = collections.filter((c) => !(c.standard === "GRC721" && c.tokenCount === 0));
-  if (empty.length) console.log(`[${chainId}] dropping ${empty.length} confirmed-empty collection(s): ${empty.map((c) => c.path).join(", ")}`);
+  // Drop GRC721s with no confirmed token count — either a real 0 (never
+  // minted anything) or unreadable entirely (no TokenCount() at all). Both
+  // describe something that isn't a genuine browsable collection: gnoswap's
+  // position/v1 and staker never mint, and gnoswap/gnft, despite having real
+  // holders, doesn't expose a count either — if we can't even say how many
+  // tokens exist, it doesn't belong in a collections list. Leaves GRC1155
+  // alone (TokenCount isn't part of that standard here).
+  const isJunk = (c) => c.standard === "GRC721" && (c.tokenCount == null || c.tokenCount === 0);
+  const dropped = collections.filter(isJunk);
+  const kept = collections.filter((c) => !isJunk(c));
+  if (dropped.length) console.log(`[${chainId}] dropping ${dropped.length} collection(s) with no confirmed tokens: ${dropped.map((c) => c.path).join(", ")}`);
+
+  // Newest first. A collection with no creation date at all (genesis-
+  // deployed, no MsgAddPackage tx for the indexer to find — see
+  // fetchCreationHeight's doc comment) sorts to the end rather than being
+  // guessed at; ties within "no date" fall back to block height, which is
+  // at least monotonic even without a wall-clock time attached.
+  kept.sort((a, b) => {
+    if (a.createdAt && b.createdAt) return b.createdAt.localeCompare(a.createdAt);
+    if (a.createdAt) return -1;
+    if (b.createdAt) return 1;
+    return (b.blockHeight ?? -1) - (a.blockHeight ?? -1);
+  });
 
   const out = {
     chainId,
