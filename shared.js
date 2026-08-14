@@ -97,6 +97,18 @@ function initNetworkSelect(selectEl, onChange) {
   });
 }
 
+// Injects the standing disclaimer footer into `container` — call once per
+// page. Kept as one shared function (not duplicated HTML per page) so the
+// wording never drifts between pages.
+function initFooter(container) {
+  container.innerHTML = `
+    <p>gnomarket is an independent, community-built project. It is not affiliated with, endorsed by, or
+    part of the official gno.land project.</p>
+    <p>This site is in beta and provided "as is," without warranties of any kind. Use at your own risk —
+    testnet tokens have no real-world value, and mainnet trading (once available) carries the same risks
+    as any other smart contract interaction.</p>`;
+}
+
 // Re-points the GnoConnect meta tags (docs.gno.land/resources/gnoconnect) so
 // a connected wallet signs against whichever network is currently selected.
 // No-op if the page doesn't declare them.
@@ -413,8 +425,15 @@ const MAX_REALMS_TO_SCAN = 200; // client-side cap, see scanChainForCollections
 // each realm resolves — callers use this to render a live counter and to
 // detect a stale/abandoned scan (e.g. after a network switch) via their own
 // generation token, since this function has no way to know it's been
-// superseded on its own.
-async function scanChainForCollections(onProgress) {
+// superseded on its own. `onFound(item)` fires the moment a collection is
+// detected (awaited, so a caller can enrich it inline before the next realm
+// starts) — lets a caller render results incrementally instead of waiting
+// for the whole scan to finish. This is the light client-side fallback scan
+// (collections.html's "Scan now" button) — the primary data source is the
+// pre-built cache at data/collections-{chainId}.json (see
+// scripts/refresh-collections.mjs), which also computes thumbnails/holder
+// counts too expensive to run live in every visitor's browser.
+async function scanChainForCollections(onProgress, onFound) {
   const rpcUrl = net().rpcUrl;
   const pathsRaw = await abciQuery(rpcUrl, "vm/qpaths", "gno.land/r/");
   let paths = pathsRaw.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -431,7 +450,11 @@ async function scanChainForCollections(onProgress) {
         .filter((name) => name.endsWith(".gno") && !name.endsWith("_test.gno"));
       const bodies = await mapLimit(filenames, 4, (name) => abciQuery(rpcUrl, "vm/qfile", `${path}/${name}`).catch(() => ""));
       const standard = detectStandard(bodies);
-      if (standard) found.push({ path, standard });
+      if (standard) {
+        const item = { path, standard };
+        found.push(item);
+        await onFound?.(item);
+      }
     } catch {
       // unreadable package — skip, don't retry
     } finally {

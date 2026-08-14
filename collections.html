@@ -41,9 +41,14 @@
         necessarily sellable on the <a href="index.html">Marketplace</a> page; that additionally requires
         its own realm to register an adapter.
       </p>
+      <p class="status">
+        This list is a cache refreshed automatically every 30 minutes (not scanned live in your browser —
+        that would mean every visitor re-scanning the whole chain). Use "Scan now" for anything deployed
+        more recently than the last refresh.
+      </p>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
         <span id="scanStatus" class="status"></span>
-        <button id="scanBtn" class="secondary">Scan chain for NFT collections</button>
+        <button id="scanBtn" class="secondary">Scan now (live)</button>
       </div>
       <div id="results"></div>
     </div>
@@ -52,11 +57,14 @@
 
 </main>
 
+<footer class="site-footer" id="siteFooter"></footer>
+
 <script src="shared.js"></script>
 <script src="wallet.js"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
 initWalletPill(document.getElementById("walletPillContainer"));
+initFooter(document.getElementById("siteFooter"));
 
 let unlocked = false;
 initGate((isOwner) => {
@@ -75,69 +83,131 @@ function applyNetwork() {
   scanGeneration++; // invalidate any scan still running against the previous network
   document.getElementById("results").innerHTML = "";
   document.getElementById("scanStatus").textContent = "";
+  loadCachedCollections();
 }
 
+// One row shape for both data sources: the pre-built cache (name/symbol/
+// tokenCount/holderCount/image all populated server-side) and a live scan
+// (holderCount/image left null — too expensive to compute per-visitor, see
+// scripts/refresh-collections.mjs's doc comment).
 function collectionRowHtml(c) {
   const netParam = encodeURIComponent(currentNetKey);
   const pathParam = encodeURIComponent(c.path);
-  const name = c.summary?.name || "(name unavailable)";
-  const symbol = c.summary?.symbol ? ` (${escapeHtml(c.summary.symbol)})` : "";
-  const count = c.summary?.tokenCount != null ? c.summary.tokenCount : "?";
+  const name = c.name || "(name unavailable)";
+  const symbol = c.symbol ? ` (${escapeHtml(c.symbol)})` : "";
+  const count = c.tokenCount != null ? c.tokenCount : "?";
+  const holders = c.holderCount != null ? c.holderCount : "—";
   const note = c.standard === "GRC1155" ? ' <span class="badge">not tradeable on gnomarket yet</span>' : "";
+  const thumb = c.image
+    ? `<img src="${escapeHtml(c.image)}" alt="" class="collection-thumb" />`
+    : `<div class="collection-thumb noimg"></div>`;
   return `
     <tr class="clickable" data-href="nfts.html?collection=${pathParam}&network=${netParam}">
+      <td>${thumb}</td>
       <td class="mono">${escapeHtml(c.path)}</td>
       <td>${escapeHtml(name)}${symbol}</td>
       <td><span class="badge">${c.standard}</span>${note}</td>
       <td>${count}</td>
+      <td>${holders}</td>
       <td><a href="nfts.html?collection=${pathParam}&network=${netParam}">View NFTs &rarr;</a></td>
     </tr>`;
 }
 
+const RESULTS_TABLE_HEAD =
+  `<table class="simple"><thead><tr><th></th><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th>Holders</th><th></th></tr></thead><tbody id="resultsBody"></tbody></table>`;
+
+function wireRowClicks() {
+  document.querySelectorAll("#results tr.clickable").forEach((row) => {
+    if (row.dataset.wired) return;
+    row.dataset.wired = "1";
+    row.addEventListener("click", (e) => {
+      if (e.target.tagName === "A") return; // let the explicit link handle its own click
+      location.href = row.dataset.href;
+    });
+  });
+}
+
+function renderTable(items) {
+  const resultsEl = document.getElementById("results");
+  if (items.length === 0) { resultsEl.innerHTML = ""; return; }
+  resultsEl.innerHTML = RESULTS_TABLE_HEAD;
+  document.getElementById("resultsBody").innerHTML = items.map(collectionRowHtml).join("");
+  wireRowClicks();
+}
+
+function appendRow(item) {
+  const resultsEl = document.getElementById("results");
+  if (!document.getElementById("resultsBody")) resultsEl.innerHTML = RESULTS_TABLE_HEAD;
+  document.getElementById("resultsBody").insertAdjacentHTML("beforeend", collectionRowHtml(item));
+  wireRowClicks();
+}
+
+function relativeTime(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+}
+
+// Primary data source: the pre-built cache (see collections.html's own
+// explanatory note in the page). Not present for "local" — a personal
+// gnodev instance has no CI to run the generator against — so that network
+// falls straight through to "no cached data, use Scan now".
+async function loadCachedCollections() {
+  const myGeneration = scanGeneration;
+  const statusEl = document.getElementById("scanStatus");
+  statusEl.textContent = "Loading…";
+  try {
+    const res = await fetch(`data/collections-${net().chainId}.json`, { cache: "no-store" });
+    if (myGeneration !== scanGeneration) return;
+    if (!res.ok) throw new Error("no cache for this network");
+    const data = await res.json();
+    if (myGeneration !== scanGeneration) return;
+    renderTable(data.collections);
+    const truncNote = data.truncated ? ` (first ${data.scannedCount} of ${data.totalRealms} realms — not exhaustive)` : "";
+    statusEl.textContent = `${data.collections.length} NFT collection${data.collections.length === 1 ? "" : "s"} · updated ${relativeTime(data.generatedAt)}.${truncNote}`;
+  } catch {
+    if (myGeneration !== scanGeneration) return;
+    renderTable([]);
+    statusEl.textContent = `No cached data for ${net().label} yet — click "Scan now" for a live scan.`;
+  }
+}
+
+// Fallback for anything deployed more recently than the last cache refresh
+// (or for "local", which has no cache at all): a lighter live scan, missing
+// the thumbnail/holder columns the cache computes server-side (see
+// scripts/refresh-collections.mjs) — those need per-token enumeration,
+// too expensive to repeat in every visitor's own browser.
 async function runScan() {
   const myGeneration = ++scanGeneration;
   const btn = document.getElementById("scanBtn");
   const statusEl = document.getElementById("scanStatus");
-  const resultsEl = document.getElementById("results");
   btn.disabled = true;
-  resultsEl.innerHTML = "";
+  renderTable([]);
+  let count = 0;
   try {
-    const { found, scannedCount, truncated, totalRealms } = await scanChainForCollections((scanned, total) => {
-      if (myGeneration === scanGeneration) statusEl.textContent = `Scanning… ${scanned}/${total}`;
-    });
+    const { found, scannedCount, truncated, totalRealms } = await scanChainForCollections(
+      (scanned, total) => {
+        if (myGeneration === scanGeneration) statusEl.textContent = `Scanning… ${scanned}/${total} (found ${count})`;
+      },
+      async (item) => {
+        if (myGeneration !== scanGeneration) return; // superseded — stop enriching/rendering for a dead scan
+        const summary = await fetchCollectionSummary(item.path).catch(() => ({ name: null, symbol: null, tokenCount: null }));
+        if (myGeneration !== scanGeneration) return;
+        count++;
+        appendRow({ ...item, ...summary, holderCount: null, image: null });
+      }
+    );
     if (myGeneration !== scanGeneration) return; // superseded by a network switch or a newer scan
-
-    if (found.length === 0) {
-      statusEl.textContent = `0 NFT collections detected across ${scannedCount} realms scanned.`;
-      return;
-    }
-
-    statusEl.textContent = `Reading collection details… 0/${found.length}`;
-    let enrichedCount = 0;
-    const enriched = await mapLimit(found, 6, async (c) => {
-      const summary = await fetchCollectionSummary(c.path).catch(() => null);
-      enrichedCount++;
-      if (myGeneration === scanGeneration) statusEl.textContent = `Reading collection details… ${enrichedCount}/${found.length}`;
-      return { ...c, summary };
-    });
-    if (myGeneration !== scanGeneration) return;
 
     const truncNote = truncated
       ? ` (showing results from the first ${scannedCount} of ${totalRealms} realms — this is a demo-grade scan, not exhaustive)`
       : "";
-    statusEl.textContent = `${enriched.length} NFT collection${enriched.length === 1 ? "" : "s"} detected across ${scannedCount} realm${scannedCount === 1 ? "" : "s"} scanned.${truncNote}`;
-
-    resultsEl.innerHTML = `
-      <table class="simple">
-        <thead><tr><th>Realm</th><th>Name</th><th>Standard</th><th>Tokens</th><th></th></tr></thead>
-        <tbody>${enriched.map(collectionRowHtml).join("")}</tbody>
-      </table>`;
-    resultsEl.querySelectorAll("tr.clickable").forEach((row) => {
-      row.addEventListener("click", (e) => {
-        if (e.target.tagName === "A") return; // let the explicit link handle its own click
-        location.href = row.dataset.href;
-      });
-    });
+    statusEl.textContent = found.length === 0
+      ? `0 NFT collections detected across ${scannedCount} realms scanned.`
+      : `${found.length} NFT collection${found.length === 1 ? "" : "s"} detected across ${scannedCount} realm${scannedCount === 1 ? "" : "s"} scanned.${truncNote}`;
   } catch (err) {
     if (myGeneration === scanGeneration) statusEl.textContent = "Scan failed: " + err.message;
   } finally {

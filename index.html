@@ -119,6 +119,8 @@
 
 </main>
 
+<footer class="site-footer" id="siteFooter"></footer>
+
 <script src="shared.js"></script>
 <script src="wallet.js"></script>
 <script>
@@ -126,6 +128,7 @@
 
 initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
 initWalletPill(document.getElementById("walletPillContainer"));
+initFooter(document.getElementById("siteFooter"));
 
 // ---------------- private-preview gate ----------------
 // Every visitor sees the splash view. Only CONFIG.ownerAddress, connected

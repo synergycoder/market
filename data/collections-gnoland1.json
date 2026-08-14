@@ -1,0 +1,37 @@
+{
+  "chainId": "gnoland1",
+  "label": "Betanet (gnoland1)",
+  "generatedAt": "2026-08-14T12:41:29.249Z",
+  "scannedCount": 38,
+  "totalRealms": 38,
+  "truncated": false,
+  "collections": [
+    {
+      "path": "gno.land/r/g1n500fmqx8m6tgts85kmn43htegkv0eewkdm4lg/gingernft",
+      "standard": "GRC721",
+      "name": "Lord Ginge Genesis",
+      "symbol": "GINGE",
+      "tokenCount": 1,
+      "holderCount": 1,
+      "image": null
+    },
+    {
+      "path": "gno.land/r/g1n500fmqx8m6tgts85kmn43htegkv0eewkdm4lg/gingernft2",
+      "standard": "GRC721",
+      "name": "Lord G's - Ginge Gnomie",
+      "symbol": "GNOMIE",
+      "tokenCount": 101,
+      "holderCount": 60,
+      "image": null
+    },
+    {
+      "path": "gno.land/r/g1w93f099t4pp9jamyghp88p60fvkg39dxz2qzrc/tardigrades",
+      "standard": "GRC721",
+      "name": "Tardigrades in Gnoland",
+      "symbol": "TARDIGRADE",
+      "tokenCount": 3,
+      "holderCount": 2,
+      "image": "https://www.tardigradesnft.com/wp-content/uploads/sites/20/2022/01/cool3.png"
+    }
+  ]
+}

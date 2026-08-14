@@ -85,9 +85,12 @@
 
 </main>
 
+<footer class="site-footer" id="siteFooter"></footer>
+
 <script src="shared.js"></script>
 <script src="wallet.js"></script>
 <script>
+initFooter(document.getElementById("siteFooter"));
 initNetworkSelect(document.getElementById("networkSelect"), () => {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
   loadGeneration++; // invalidate any load still running against the previous network

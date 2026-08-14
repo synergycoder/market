@@ -184,6 +184,11 @@ table.simple th, table.simple td { text-align: left; padding: 0.35rem 0.5rem; bo
 table.simple th { color: var(--muted); font-weight: 500; }
 table.simple tr.clickable { cursor: pointer; }
 table.simple tr.clickable:hover { background: var(--bg); }
+.collection-thumb {
+  width: 36px; height: 36px; border-radius: 6px; object-fit: cover; display: block;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.collection-thumb.noimg { display: block; }
 .badge {
   display: inline-block;
   background: var(--border);
@@ -246,6 +251,19 @@ table.listings td.name-cell { display: flex; align-items: center; gap: 0.6rem; }
 .breadcrumb { font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem; }
 .breadcrumb a { color: var(--muted); text-decoration: none; }
 .breadcrumb a:hover { color: var(--text); }
+
+/* ---------------- disclaimer footer ---------------- */
+footer.site-footer {
+  max-width: 1000px;
+  margin: 2rem auto 0;
+  padding: 1rem 1.5rem 2rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+footer.site-footer p { margin: 0 0 0.4rem; }
+footer.site-footer p:last-child { margin-bottom: 0; }
 
 /* ---------------- splash (gated home page) ---------------- */
 .splash { max-width: 480px; margin: 4rem auto; text-align: center; }

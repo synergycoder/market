@@ -1,0 +1,41 @@
+name: Refresh collections cache
+
+# Runs the chain scan server-side on a schedule instead of every visitor's
+# browser doing it live — see scripts/refresh-collections.mjs. Committing
+# the result to data/ also means GitHub Pages redeploys automatically on
+# every refresh (a normal push to main), no separate publish step needed.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-collections
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: node scripts/refresh-collections.mjs
+
+      - name: Commit updated cache if changed
+        run: |
+          git config user.name "gnomarket-bot"
+          git config user.email "actions@github.com"
+          git add data/
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Refresh collections cache [skip ci]"
+          git push
