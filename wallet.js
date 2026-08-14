@@ -227,42 +227,58 @@ async function resolveApprovalTarget(collectionID, marketAddr) {
 }
 
 // Read-only: does collectionID currently show `seller` as having approved
-// `marketAddr` — the exact same check List() itself performs. Used to
-// decide which of the two steps below a seller still needs, both before
-// showing the approve/list UI and after an approve tx to know when it's
-// safe to reveal the list step. Retries once immediately on a read error
-// before giving up on this one check — confirmed live that the public
-// sapphire-1 RPC endpoint occasionally throws on a perfectly valid query
-// (same query, same args, succeeded on retry moments later with no code
-// change), and a poll loop that treats that as "not approved yet" burns
-// through its whole timeout on bad luck rather than real chain state.
-async function isApprovedForListing(collectionID, seller, marketAddr) {
+// `marketAddr` — the exact same check List() itself performs. Retries once
+// immediately on a read error before giving up on this one check —
+// confirmed live that the public sapphire-1 RPC endpoint occasionally
+// throws on a perfectly valid query (same query, same args, succeeded on
+// retry moments later with no code change). Returns { approved, error } —
+// error is the last raw failure seen (from either attempt), null if both
+// attempts came back clean either way; kept even on approved:true/false so
+// a caller building a diagnostic message always has the real reason to
+// hand, not just a boolean.
+async function checkApproval(collectionID, seller, marketAddr) {
+  let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
-      return !!approvedAll;
-    } catch { /* first attempt: retry once immediately; second: fall through to false below */ }
+      return { approved: !!approvedAll, error: lastError };
+    } catch (err) {
+      lastError = `${collectionID}.IsApprovedForAll(${seller}, ${marketAddr}): ` + (err?.message || err);
+    }
   }
-  return false;
+  return { approved: false, error: lastError };
+}
+
+// Boolean-only convenience wrapper — used where the caller only needs the
+// current state, not a diagnostic (the initial render check on both
+// nft.html and My NFTs' cards).
+async function isApprovedForListing(collectionID, seller, marketAddr) {
+  return (await checkApproval(collectionID, seller, marketAddr)).approved;
 }
 
 // Adena's DoContract resolves "success" once a tx is accepted into the
 // mempool (CheckTx), not once it's actually committed to a block — its own
 // response never reliably carries a `height`, only a `hash` (see
-// ~/gno-land-dev-notes.md). Poll isApprovedForListing until it genuinely
-// goes true. 90s / 2s errs long and patient: a real approval that landed
-// but wasn't yet visible was mistaken for a failure at 20s in an earlier
+// ~/gno-land-dev-notes.md). Poll checkApproval until it genuinely goes
+// true. 90s / 2s errs long and patient: a real approval that landed but
+// wasn't yet visible was mistaken for a failure at 20s in an earlier
 // version of this function, even though it always did land moments later.
 // Browser tabs also throttle timers heavily while backgrounded (e.g. while
 // Adena's own popup has focus instead), so far fewer real checks may run
 // in a given wall-clock window than intervalMs implies — approveForListing
 // below re-checks once more, fresh, before treating a timeout as final.
+// Returns { confirmed, lastError } — lastError is whatever checkApproval
+// last reported, so a final failure message can say WHY, not just that it
+// gave up.
 async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 90000, intervalMs = 2000) {
   const start = Date.now();
   const deadline = start + timeoutMs;
+  let lastError = null;
   for (;;) {
-    if (await isApprovedForListing(collectionID, seller, marketAddr)) return true;
-    if (Date.now() >= deadline) return false;
+    const { approved, error } = await checkApproval(collectionID, seller, marketAddr);
+    if (error) lastError = error;
+    if (approved) return { confirmed: true, lastError };
+    if (Date.now() >= deadline) return { confirmed: false, lastError };
     onTick?.(Math.round((Date.now() - start) / 1000));
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -289,7 +305,7 @@ async function approveForListing(collectionID, marketAddr, onStatus) {
 
   onStatus?.("Waiting for the approval to confirm on-chain…");
   const seller = await ensureConnected();
-  const confirmed = await waitForApproval(collectionID, seller, marketAddr,
+  const { confirmed, lastError } = await waitForApproval(collectionID, seller, marketAddr,
     (elapsedSec) => onStatus?.(`Waiting for the approval to confirm on-chain… (${elapsedSec}s)`));
   if (confirmed) return { ok: true };
 
@@ -298,8 +314,15 @@ async function approveForListing(collectionID, marketAddr, onStatus) {
   // errors. One more fresh check, well clear of the polling loop, catches
   // exactly that case without making the seller manually reload the page.
   onStatus?.("Still checking…");
-  if (await isApprovedForListing(collectionID, seller, marketAddr)) return { ok: true };
-  return { ok: false, message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. It likely landed; wait a bit and click Approve again (harmless if it already went through)." };
+  const final = await checkApproval(collectionID, seller, marketAddr);
+  if (final.approved) return { ok: true };
+  const reason = final.error || lastError;
+  console.error("[gnomarket] approval still not visible after 90s", { collectionID, target, operator, marketAddr, seller, reason });
+  return {
+    ok: false,
+    message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. It likely landed; wait a bit and click Approve again (harmless if it already went through)."
+      + (reason ? ` [diagnostic: ${reason}]` : " [diagnostic: every check came back clean \"not approved\" — no read errors]"),
+  };
 }
 
 // Step 2 of 2 — call only from a fresh click, once approveForListing has
