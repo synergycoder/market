@@ -2,6 +2,15 @@
 // gnomarket pages (index.html, collections.html, nfts.html). Kept as one
 // plain <script> file (no bundler, no build step) rather than tripling this
 // ~250 lines across three pages.
+//
+// GitHub Pages serves this (and wallet.js) with `cache-control: max-age=600`
+// — confirmed live a real bug report turned out to be a stale 10-minute-old
+// cached copy of wallet.js, moments after a real fix had already been
+// pushed. Every <script src="shared.js?v=N"> / "wallet.js?v=N"> tag across
+// every page carries a matching ?v= query param specifically to bust that
+// cache — bump N (any page's tags, they all need to move together) whenever
+// either file changes, or a fresh deploy can still serve stale JS for up to
+// 10 minutes after pushing.
 
 // ---------------- networks ----------------
 

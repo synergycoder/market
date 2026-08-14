@@ -24,7 +24,7 @@
 <body>
 
 <header>
-  <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket<span id="chainLabel" style="display:none;"></span></h1>
+  <h1><img src="favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
   <nav class="topnav" id="appNav" style="display:none;">
     <a href="index.html" class="active">Marketplace</a>
     <a href="collections.html">Collections</a>
@@ -43,7 +43,7 @@
   <div class="splash">
     <div class="splash-badge">Coming soon</div>
     <img src="favicon.svg" alt="" class="splash-logo" />
-    <h1 class="splash-mark">gnomarket</h1>
+    <h1 class="splash-mark">Gno.Market</h1>
     <p class="splash-tagline">A non-custodial NFT marketplace for gno.land.<br />Trade any GRC721 collection — no escrow, no custody.</p>
     <div class="splash-links">
       <a href="https://github.com/synergycoder/market" target="_blank" rel="noopener">Source</a>
@@ -121,8 +121,8 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js"></script>
-<script src="wallet.js"></script>
+<script src="shared.js?v=1"></script>
+<script src="wallet.js?v=1"></script>
 <script>
 // ---------------- network wiring ----------------
 
@@ -158,7 +158,7 @@ function applyNetwork() {
   if (!n.marketplaceDeployed) {
     banner.style.display = "block";
     banner.textContent =
-      `The gnomarket realm isn't deployed on ${n.label} — browsing/trading through it is unavailable here. ` +
+      `The Gno.Market realm isn't deployed on ${n.label} — browsing/trading through it is unavailable here. ` +
       `Switch to Local to try the full buy/sell flow. The Collections and NFTs pages still work (read-only) on any network.`;
   } else {
     banner.style.display = "none";
@@ -208,7 +208,7 @@ async function loadListings() {
   if (!net().marketplaceDeployed) {
     allListings = [];
     renderListings();
-    statusEl.textContent = `Not applicable — gnomarket isn't deployed on ${net().label}.`;
+    statusEl.textContent = `Not applicable — Gno.Market isn't deployed on ${net().label}.`;
     statusEl.className = "status";
     return;
   }

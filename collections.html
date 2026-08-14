@@ -10,7 +10,7 @@
 <body>
 
 <header>
-  <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket<span id="chainLabel" style="display:none;"></span></h1>
+  <h1><img src="favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
   <nav class="topnav" id="appNav" style="display:none;">
     <a href="index.html">Marketplace</a>
     <a href="collections.html" class="active">Collections</a>
@@ -35,7 +35,7 @@
     <div class="panel">
       <p class="status">
         Detected by scanning every deployed realm for GRC721/GRC1155 signatures (the same heuristic
-        gno-observer uses) — not filtered to gnomarket's own registry. A collection showing here isn't
+        gno-observer uses) — not filtered to Gno.Market's own registry. A collection showing here isn't
         necessarily sellable on the <a href="index.html">Marketplace</a> page; that additionally requires
         its own realm to register an adapter.
       </p>
@@ -57,8 +57,8 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js"></script>
-<script src="wallet.js"></script>
+<script src="shared.js?v=1"></script>
+<script src="wallet.js?v=1"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
 initWalletPill(document.getElementById("walletPillContainer"));
@@ -103,7 +103,7 @@ function collectionRowHtml(c) {
   const symbol = c.symbol ? ` (${escapeHtml(c.symbol)})` : "";
   const count = c.tokenCount != null ? c.tokenCount : "?";
   const holders = c.holderCount != null ? c.holderCount : "—";
-  const note = c.standard === "GRC1155" ? ' <span class="badge">not tradeable on gnomarket yet</span>' : "";
+  const note = c.standard === "GRC1155" ? ' <span class="badge">not tradeable on Gno.Market yet</span>' : "";
   const thumb = c.image
     ? `<img src="${escapeHtml(c.image)}" alt="" class="collection-thumb" />`
     : `<div class="collection-thumb noimg"></div>`;

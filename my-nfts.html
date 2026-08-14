@@ -10,7 +10,7 @@
 <body>
 
 <header>
-  <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket<span id="chainLabel" style="display:none;"></span></h1>
+  <h1><img src="favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
   <nav class="topnav" id="appNav" style="display:none;">
     <a href="index.html">Marketplace</a>
     <a href="collections.html">Collections</a>
@@ -34,10 +34,10 @@
     <h2>My NFTs</h2>
     <div class="panel">
       <p class="status">
-        Checks your connected wallet's balance against every collection in gnomarket's cached list (the
+        Checks your connected wallet's balance against every collection in Gno.Market's cached list (the
         same one <a href="collections.html">Collections</a> shows) and lists what you actually hold. Open
         any of these to approve the marketplace and set a price. Something you hold isn't showing up? It's
-        probably a collection gnomarket hasn't detected yet — try "Scan now" on the
+        probably a collection Gno.Market hasn't detected yet — try "Scan now" on the
         <a href="collections.html">Collections</a> page first.
       </p>
       <div id="connectPrompt" class="status" style="display:none;">Connect your wallet above to see what you hold.</div>
@@ -51,8 +51,8 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js"></script>
-<script src="wallet.js"></script>
+<script src="shared.js?v=1"></script>
+<script src="wallet.js?v=1"></script>
 <script>
 initFooter(document.getElementById("siteFooter"));
 initWalletPill(document.getElementById("walletPillContainer"));
@@ -177,10 +177,10 @@ function wireCardActions() {
     };
 
     const listBtn = card.querySelector(".list-btn");
-    if (listBtn) {
-      listBtn.addEventListener("click", async () => {
-        const priceInput = card.querySelector(".list-price");
-        const priceGnot = parseFloat(priceInput?.value);
+    const priceInput = card.querySelector(".list-price");
+    if (listBtn && priceInput) {
+      const submitList = async () => {
+        const priceGnot = parseFloat(priceInput.value);
         if (!(priceGnot > 0)) { setStatus("Enter a positive price first.", "status error"); return; }
         if (!marketAddr) { setStatus("Marketplace address not loaded yet.", "status error"); return; }
         listBtn.disabled = true;
@@ -188,6 +188,12 @@ function wireCardActions() {
         const res = await listToken(collectionID, tokenId, priceUgnot, marketAddr, (msg) => setStatus(msg));
         if (res.ok) { setStatus("Listed.", "status ok"); setTimeout(() => refreshCardListing(card), 1200); }
         else { setStatus(res.message, "status error"); listBtn.disabled = false; }
+      };
+      listBtn.addEventListener("click", submitList);
+      // Enter in the price field lists directly — same convenience as
+      // submitting any other single-field form.
+      priceInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submitList();
       });
     }
 
@@ -339,7 +345,7 @@ async function loadMyNfts() {
   saveMyNftsCache(freshEntries);
 
   setScanStatus(found === 0
-    ? `You don't hold any tokens in the ${collections.length} collection${collections.length === 1 ? "" : "s"} gnomarket currently knows about.`
+    ? `You don't hold any tokens in the ${collections.length} collection${collections.length === 1 ? "" : "s"} Gno.Market currently knows about.`
     : `${found} token${found === 1 ? "" : "s"} across ${collections.length} collection${collections.length === 1 ? "" : "s"} checked.`);
 }
 </script>
