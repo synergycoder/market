@@ -226,43 +226,24 @@ async function resolveApprovalTarget(collectionID, marketAddr) {
   return { target: collectionID, operator: marketAddr };
 }
 
-// Adena's DoContract resolves "success" once a tx is accepted into the
-// mempool (CheckTx), not once it's actually committed to a block — its own
-// response never reliably carries a `height`, only a `hash` (see
-// ~/gno-land-dev-notes.md). Poll the exact same read nftmarket.gno's own
-// isApproved() performs — IsApprovedForAll(seller, marketAddr) on
-// collectionID, which for a satellite adapter correctly resolves through
-// to its own approval regardless of the operator address passed in —
-// until it genuinely goes true. 90s / 2s errs long and patient: a real
-// approval that landed but wasn't yet visible was mistaken for a failure
-// at 20s in an earlier version of this function, even though it always
-// did land moments later.
-async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 90000, intervalMs = 2000) {
-  const start = Date.now();
-  const deadline = start + timeoutMs;
-  for (;;) {
-    try {
-      const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
-      if (approvedAll) return true;
-    } catch { /* not visible yet, or a transient read error — keep polling */ }
-    if (Date.now() >= deadline) return false;
-    onTick?.(Math.round((Date.now() - start) / 1000));
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
 // Read-only: does collectionID currently show `seller` as having approved
 // `marketAddr` — the exact same check List() itself performs. Used to
 // decide which of the two steps below a seller still needs, both before
 // showing the approve/list UI and after an approve tx to know when it's
-// safe to reveal the list step.
+// safe to reveal the list step. Retries once immediately on a read error
+// before giving up on this one check — confirmed live that the public
+// sapphire-1 RPC endpoint occasionally throws on a perfectly valid query
+// (same query, same args, succeeded on retry moments later with no code
+// change), and a poll loop that treats that as "not approved yet" burns
+// through its whole timeout on bad luck rather than real chain state.
 async function isApprovedForListing(collectionID, seller, marketAddr) {
-  try {
-    const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
-    return !!approvedAll;
-  } catch {
-    return false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
+      return !!approvedAll;
+    } catch { /* first attempt: retry once immediately; second: fall through to false below */ }
   }
+  return false;
 }
 
 // Adena's DoContract resolves "success" once a tx is accepted into the
@@ -272,6 +253,10 @@ async function isApprovedForListing(collectionID, seller, marketAddr) {
 // goes true. 90s / 2s errs long and patient: a real approval that landed
 // but wasn't yet visible was mistaken for a failure at 20s in an earlier
 // version of this function, even though it always did land moments later.
+// Browser tabs also throttle timers heavily while backgrounded (e.g. while
+// Adena's own popup has focus instead), so far fewer real checks may run
+// in a given wall-clock window than intervalMs implies — approveForListing
+// below re-checks once more, fresh, before treating a timeout as final.
 async function waitForApproval(collectionID, seller, marketAddr, onTick, timeoutMs = 90000, intervalMs = 2000) {
   const start = Date.now();
   const deadline = start + timeoutMs;
@@ -306,10 +291,15 @@ async function approveForListing(collectionID, marketAddr, onStatus) {
   const seller = await ensureConnected();
   const confirmed = await waitForApproval(collectionID, seller, marketAddr,
     (elapsedSec) => onStatus?.(`Waiting for the approval to confirm on-chain… (${elapsedSec}s)`));
-  if (!confirmed) {
-    return { ok: false, message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. It likely landed; reload and try again in a bit." };
-  }
-  return { ok: true };
+  if (confirmed) return { ok: true };
+
+  // waitForApproval giving up doesn't necessarily mean the approval isn't
+  // there — see its own doc comment on timer throttling and transient RPC
+  // errors. One more fresh check, well clear of the polling loop, catches
+  // exactly that case without making the seller manually reload the page.
+  onStatus?.("Still checking…");
+  if (await isApprovedForListing(collectionID, seller, marketAddr)) return { ok: true };
+  return { ok: false, message: "Approval was sent but still hasn't confirmed on-chain after 90s — this is unusual. It likely landed; wait a bit and click Approve again (harmless if it already went through)." };
 }
 
 // Step 2 of 2 — call only from a fresh click, once approveForListing has
