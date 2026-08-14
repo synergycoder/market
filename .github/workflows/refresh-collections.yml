@@ -1,10 +1,15 @@
-name: Refresh cached chain data
+name: Refresh collections cache
 
-# Runs the chain scans server-side on a schedule instead of every visitor's
-# browser doing it live — see scripts/refresh-collections.mjs and
-# scripts/refresh-listings.mjs. Committing the result to data/ also means
-# GitHub Pages redeploys automatically on every refresh (a normal push to
-# main), no separate publish step needed.
+# Runs the chain scan server-side on a schedule instead of every visitor's
+# browser doing it live — see scripts/refresh-collections.mjs. Committing
+# the result to data/ also means GitHub Pages redeploys automatically on
+# every refresh (a normal push to main), no separate publish step needed.
+#
+# Stale listings no longer need a cache of their own (an earlier version of
+# this workflow also ran scripts/refresh-listings.mjs for that) — nftmarketv2
+# added a permissionless PruneStale that actually removes a stale listing
+# on-chain instead of just hiding it client-side, see index.html's "Clean up
+# stale listings" control and shared.js's NETWORKS.testnet comment.
 on:
   schedule:
     - cron: "*/30 * * * *"
@@ -28,7 +33,6 @@ jobs:
           node-version: 20
 
       - run: node scripts/refresh-collections.mjs
-      - run: node scripts/refresh-listings.mjs
 
       - name: Commit updated cache if changed
         run: |
@@ -39,5 +43,5 @@ jobs:
             echo "No changes to commit."
             exit 0
           fi
-          git commit -m "Refresh cached chain data [skip ci]"
+          git commit -m "Refresh collections cache [skip ci]"
           git push

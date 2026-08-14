@@ -69,6 +69,7 @@
         </select>
         <span class="spacer"></span>
         <span id="listingsStatus" class="status"></span>
+        <button id="cleanupBtn" class="secondary" style="display:none;" title="Remove listings whose seller no longer owns or has approved the token">Clean up stale listings</button>
         <button id="refreshBtn" class="secondary">Refresh</button>
         <div class="view-toggle">
           <button id="viewGridLarge" class="active" title="Large grid">▦</button>
@@ -76,6 +77,7 @@
           <button id="viewList" title="List">☰</button>
         </div>
       </div>
+      <p id="cleanupStatus" class="status"></p>
       <div id="grid" class="grid"></div>
       <div id="listWrap" style="display:none; overflow-x:auto;">
         <table class="simple listings">
@@ -142,7 +144,8 @@ initGate((isOwner) => {
   if (isOwner) applyNetwork(); // defer all RPC activity until unlocked — no reason to query the chain for a splash-only visitor
 });
 
-let allListings = []; // enriched, unfiltered — sort/filter re-render from this without a refetch
+let allListings = []; // enriched, non-stale — sort/filter re-render from this without a refetch
+let staleListings = []; // enriched, hidden from the grid — candidates for cleanupStaleListings()
 
 function applyNetwork() {
   const n = net();
@@ -185,26 +188,6 @@ async function fetchTokenInfo(collectionID, tokenId) {
   return { name, tokenURI, owner };
 }
 
-// scripts/refresh-listings.mjs pre-computes staleness (owner changed, or
-// marketplace approval revoked) every 30 min server-side, so the
-// approval-revoked case — the one live TokenInfo alone can't see — doesn't
-// need its own extra RPC call per listing per visitor. A listing this cache
-// doesn't know about yet (created since the last cron run) is treated as
-// fresh, never as stale — the cache only ever narrows what's shown, it
-// never has to be complete to be safe.
-let staleFromCache = new Map(); // "collectionID::tokenId" -> true
-async function loadStaleCache() {
-  staleFromCache = new Map();
-  try {
-    const res = await fetch(`data/listings-${net().chainId}.json`, { cache: "no-store" });
-    if (!res.ok) return;
-    const data = await res.json();
-    for (const l of data.listings || []) {
-      if (l.stale) staleFromCache.set(`${l.collectionID}::${l.tokenId}`, true);
-    }
-  } catch { /* cache missing/unreadable — nothing gets hidden on its account */ }
-}
-
 async function loadFee() {
   const el = document.getElementById("feeLabel");
   if (!net().marketplaceDeployed) { el.textContent = ""; return; }
@@ -231,13 +214,16 @@ async function loadListings() {
   }
   statusEl.textContent = "Loading…";
   statusEl.className = "status";
+  document.getElementById("cleanupBtn").style.display = "none";
+  document.getElementById("cleanupStatus").textContent = "";
   try {
-    const [listings] = await Promise.all([fetchListings(), loadStaleCache()]);
+    const listings = await fetchListings();
     // Preserve insertion order (oldest first, as returned) as a proxy for
     // listing date — the realm exposes no separate "get CreatedAt" reader.
     listings.forEach((l, i) => { l.order = i; });
     if (listings.length === 0) {
       allListings = [];
+      staleListings = [];
       renderListings();
       statusEl.textContent = "No active listings.";
       return;
@@ -248,26 +234,82 @@ async function loadListings() {
         const display = await fetchTokenDisplayInfo(l.collectionID, l.tokenId, info.tokenURI);
         // Free (info.owner is already fetched above) live check for the
         // most common staleness cause — sold or transferred elsewhere.
-        // The rarer "approval revoked without a transfer" case relies on
-        // the cron-computed cache instead — see loadStaleCache().
-        const stale = (info.owner && info.owner !== l.seller) || staleFromCache.has(`${l.collectionID}::${l.tokenId}`);
+        // The rarer "approval revoked without a transfer" case can't be
+        // seen this cheaply (it needs its own extra RPC call per listing),
+        // so it's only actually checked when "Clean up stale listings" is
+        // clicked — see cleanupStaleListings().
+        const stale = info.owner && info.owner !== l.seller;
         return { ...l, info, display, stale };
       } catch (err) {
         return { ...l, info: null, display: null, infoError: err.message, stale: false };
       }
     });
-    const staleCount = enriched.filter((l) => l.stale).length;
+    staleListings = enriched.filter((l) => l.stale);
     allListings = enriched.filter((l) => !l.stale);
     statusEl.textContent = allListings.length === 0
       ? "No active listings."
       : `${allListings.length} active listing${allListings.length === 1 ? "" : "s"}.`
-        + (staleCount ? ` (${staleCount} hidden — no longer held or approved by the seller)` : "");
+        + (staleListings.length ? ` (${staleListings.length} hidden — seller no longer owns the token)` : "");
+    document.getElementById("cleanupBtn").style.display = "";
     populateCollectionFilter();
     renderListings();
   } catch (err) {
     statusEl.textContent = "Failed to load listings: " + err.message;
     statusEl.className = "status error";
   }
+}
+
+// Anyone can call nftmarketv2's PruneStale on a listing that fails the
+// same owner/approval check List/Buy already enforce — see its own doc
+// comment. loadListings() above already caught the free case (owner
+// changed); this adds the one extra RPC call per listing needed to also
+// catch "approval revoked without a transfer", but only when the admin
+// actually asks for a cleanup, not on every page load.
+async function cleanupStaleListings() {
+  const btn = document.getElementById("cleanupBtn");
+  const statusEl = document.getElementById("cleanupStatus");
+  btn.disabled = true;
+  statusEl.textContent = "Checking approvals…";
+  statusEl.className = "status";
+
+  let marketAddr = null;
+  try { [marketAddr] = parseGnoLines(await qeval("MarketAddress()")); } catch { /* leave null */ }
+  if (!marketAddr) {
+    statusEl.textContent = "Couldn't read the marketplace's own address.";
+    statusEl.className = "status error";
+    btn.disabled = false;
+    return;
+  }
+
+  // Both the already-hidden ones (owner changed — no need to re-check) and
+  // the currently-shown ones (need a live approval check — the one case
+  // the free owner check can't see) are candidates.
+  const toPrune = staleListings.slice();
+  const checkCandidates = allListings.slice();
+  await mapLimit(checkCandidates, 6, async (l) => {
+    try {
+      const [approved] = parseGnoLines(await qevalOn(l.collectionID, `IsApprovedForAll(${JSON.stringify(l.seller)}, ${JSON.stringify(marketAddr)})`));
+      if (!approved) toPrune.push(l);
+    } catch { /* unreadable — leave it, Buy's own check is the real safety net either way */ }
+  });
+
+  if (toPrune.length === 0) {
+    statusEl.textContent = "Nothing to clean up — every listing checks out.";
+    statusEl.className = "status ok";
+    btn.disabled = false;
+    return;
+  }
+
+  let pruned = 0;
+  for (const l of toPrune) {
+    statusEl.textContent = `Removing ${pruned + 1}/${toPrune.length} stale listing${toPrune.length === 1 ? "" : "s"}… (check Adena)`;
+    const res = await signAndBroadcast(net().marketPkgPath, "PruneStale", [l.collectionID, l.tokenId], "");
+    if (res.ok) pruned++;
+  }
+  statusEl.textContent = `Removed ${pruned}/${toPrune.length} stale listing${toPrune.length === 1 ? "" : "s"}.`;
+  statusEl.className = pruned === toPrune.length ? "status ok" : "status error";
+  btn.disabled = false;
+  loadListings();
 }
 
 function populateCollectionFilter() {
@@ -373,6 +415,7 @@ document.getElementById("viewList").addEventListener("click", () => setView("lis
 document.getElementById("collectionFilter").addEventListener("change", renderListings);
 document.getElementById("sortSelect").addEventListener("change", renderListings);
 document.getElementById("refreshBtn").addEventListener("click", loadListings);
+document.getElementById("cleanupBtn").addEventListener("click", cleanupStaleListings);
 
 if (location.protocol === "file:") {
   document.getElementById("adenaNote").textContent =

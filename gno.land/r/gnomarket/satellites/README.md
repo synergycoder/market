@@ -58,10 +58,25 @@ but only if the adapter is written defensively from the start:
   address that will actually call `TransferFrom`, and the only one a
   seller was ever told to approve.
 
+## An adapter's marketplace import is static — a marketplace version bump means a new adapter too
+
+An adapter registers with one specific marketplace deploy by importing it
+(`nftmarket "gno.land/r/.../nftmarketv2"` and calling
+`nftmarket.RegisterCollection` inside `RegisterWithMarketplace`) — a plain
+Gno import, resolved at compile time. When the marketplace itself gets a
+new deploy (immutable, same reasoning as everything else on this page),
+every adapter's `RegisterWithMarketplace` is still pointed at the OLD
+marketplace and has no way to repoint itself — there's no such thing as
+"the same adapter, now importing something else." Each marketplace version
+bump means every satellite adapter needs its own fresh deploy too, even
+though nothing about the adapter's own logic changed.
+
 ## Existing adapters
 
-- `gemsg7adapterv2/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
-  ("Gems"), sapphire-1 testnet. (v1 shipped without the defensive handling
-  above, panicked on every trade, and — being immutable — had to be
-  superseded by a fresh deploy rather than fixed in place; its dead
-  registration is still on-chain but excluded from the frontend/cache.)
+- `gemsg7adapterv3/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
+  ("Gems"), sapphire-1 testnet, registered with `nftmarketv2`. (v1 shipped
+  without the defensive `GetApproved`/`IsApprovedForAll` handling above and
+  panicked on every trade; v2 fixed that but was still registered with the
+  original `nftmarket`, which got superseded by `nftmarketv2` — see that
+  realm's own doc comment on `PruneStale`. Both v1 and v2's registrations
+  are still on-chain but dead/excluded from the frontend and cache.)

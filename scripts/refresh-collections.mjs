@@ -40,7 +40,8 @@ const NETWORKS = {
 // paths to adapter paths, which is a frontend link-generation concern).
 const SATELLITE_ADAPTER_PATHS = new Set([
   "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter", // v1 — superseded, still deployed (immutable), excluded so it doesn't linger as a stale duplicate row
-  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2",
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2", // v2 — superseded by v3 (re-registered against nftmarketv2), same reasoning
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3",
 ]);
 
 const MAX_REALMS_TO_SCAN = 200;

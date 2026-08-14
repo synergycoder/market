@@ -35,7 +35,15 @@ const NETWORKS = {
     rpcUrl: "https://rpc.sapphire.testnets.gno.land",
     chainId: "sapphire-1",
     gnowebUrl: "https://sapphire.testnets.gno.land",
-    marketPkgPath: "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/nftmarket",
+    // v2: added a permissionless PruneStale(collectionID, tid) — anyone can
+    // remove a listing that fails the exact same owner/approval check
+    // List/Buy already enforce, so a listing sold or transferred elsewhere
+    // stops lingering forever waiting on a seller who has no reason to
+    // notice. The original nftmarket is immutable, so this needed a fresh
+    // deploy under a new path, same as the adapter's own v1->v2 history
+    // below. See gno.land/r/gnomarket/nftmarketv2/market.gno's own doc
+    // comment on PruneStale for the detail.
+    marketPkgPath: "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/nftmarketv2",
     marketplaceDeployed: true,
   },
   betanet: {
@@ -69,16 +77,19 @@ const CONFIG = {
 // collectionID nothing was ever registered against). Keyed by real path,
 // one entry per satellite adapter that exists.
 const SATELLITE_ADAPTERS = {
-  // v2: the original gemsg7adapter panicked on every List/Buy
-  // ("token id not approved for anyone") because g7's real GetApproved
-  // errors when nothing is individually approved, and its IsApprovedForAll
-  // forwarded the marketplace's own address instead of checking whether
-  // this adapter itself was approved — both fixed in v2, immutability
-  // meant the only way to fix them was a fresh deploy under a new path.
-  // See gno.land/r/gnomarket/satellites/gemsg7adapter/adapter.gno's own
+  // v3: re-registered against nftmarketv2 (see NETWORKS.testnet's own
+  // comment) — an adapter's import of the marketplace it registers with is
+  // a static Gno import, so it can't be repointed in place; every
+  // marketplace version bump means every adapter needs its own fresh
+  // deploy too. v2 itself fixed a real bug: the original gemsg7adapter
+  // panicked on every List/Buy ("token id not approved for anyone")
+  // because g7's real GetApproved errors when nothing is individually
+  // approved, and its IsApprovedForAll forwarded the marketplace's own
+  // address instead of checking whether this adapter itself was approved.
+  // See gno.land/r/gnomarket/satellites/gemsg7adapterv3/adapter.gno's own
   // doc comments for the full detail.
   "gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7":
-    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2",
+    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3",
 };
 
 // The collectionID a "View NFTs"/item link should actually use — the
