@@ -15,6 +15,7 @@
   </div>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
+    <div id="walletPillContainer"></div>
   </div>
 </header>
 
@@ -46,8 +47,10 @@
 </main>
 
 <script src="shared.js"></script>
+<script src="wallet.js"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
+initWalletPill(document.getElementById("walletPillContainer"));
 
 let scanGeneration = 0;
 

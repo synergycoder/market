@@ -20,8 +20,15 @@ package market
 // from a trusted-blindly argument. The gno VM enforces that a stashed/foreign
 // `cur` cannot be replayed through interface dispatch (IsCurrent-strict on
 // cross), so the marketplace holding this value can only ever move a token
-// while it is genuinely the calling realm — i.e. only tokens the collection's
-// own ledger already shows as owned by the marketplace (escrowed).
+// while it is genuinely the calling realm.
+//
+// This marketplace is non-custodial: a listed token never leaves the
+// seller's wallet until the moment of sale. Instead, the seller grants the
+// marketplace's own address approval (via the collection's normal
+// Approve/SetApprovalForAll), and List/Buy only ever call TransferFrom —
+// which succeeds because the collection's OWN authorization check (not
+// marketplace-side trust) recognizes the marketplace as an approved
+// operator, the same way it would recognize any other approved third party.
 //
 // A typical adapter, written once by a collection author on top of any
 // vendored grc721 package (nft below is that package's concrete type, kept in
@@ -35,6 +42,12 @@ package market
 //	}
 //	func (marketAdapter) TokenURI(tid string) (string, error) {
 //		return nft.TokenURI(grc721.TokenID(tid))
+//	}
+//	func (marketAdapter) GetApproved(tid string) (address, error) {
+//		return nft.GetApproved(grc721.TokenID(tid))
+//	}
+//	func (marketAdapter) IsApprovedForAll(owner, operator address) bool {
+//		return nft.IsApprovedForAll(owner, operator)
 //	}
 //	func (marketAdapter) TransferFrom(cur realm, from, to address, tid string) error {
 //		caller := cur.Previous().Address()
@@ -55,14 +68,29 @@ type NFT interface {
 	OwnerOf(tid string) (address, error)
 	// TokenURI returns the token's metadata URI, for render purposes only.
 	TokenURI(tid string) (string, error)
+	// GetApproved returns the address explicitly approved to move tid, or
+	// "" if none. The marketplace reads this (and IsApprovedForAll) before
+	// accepting a listing, to verify the seller has actually granted it
+	// permission — List does not itself grant or request anything.
+	GetApproved(tid string) (address, error)
+	// IsApprovedForAll reports whether operator holds blanket approval over
+	// all of owner's tokens in this collection.
+	IsApprovedForAll(owner, operator address) bool
 	// TransferFrom moves tid from `from` to `to`. Implementations MUST derive
-	// the effective caller from cur.Previous().Address() and apply their own
-	// collection's normal transfer authorization against it — never trust a
-	// caller identity passed in some other way.
+	// the effective caller from cur.Previous().Address() themselves and
+	// apply their own collection's normal transfer authorization against it
+	// — caller must be from's current owner, or an address from has
+	// approved via Approve/SetApprovalForAll — never trust a caller
+	// identity passed in some other way. This check, performed by the
+	// collection itself rather than trusted from the marketplace, is what
+	// makes it safe for the marketplace to move a seller's token without
+	// ever holding it.
 	TransferFrom(cur realm, from, to address, tid string) error
 }
 
-// Listing is a fixed-price sale order held by the marketplace.
+// Listing is a fixed-price sale order held by the marketplace. The token
+// itself stays with Seller (approved to the marketplace, not escrowed)
+// until Buy succeeds.
 type Listing struct {
 	CollectionID string // the registering realm's own PkgPath; spoof-proof
 	TokenID      string

@@ -22,7 +22,7 @@ func main(cur realm) {
 	testcollection.RegisterWithMarketplace(cross(cur))
 
 	testing.SetOriginCaller(seller)
-	testcollection.Transfer(cross(cur), marketAddr, "1")
+	testcollection.SetApprovalForAll(cross(cur), marketAddr, true)
 
 	testing.SetOriginCaller(seller)
 	nftmarket.List(cross(cur), collectionID, "1", 1000)

@@ -15,6 +15,7 @@
   </div>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
+    <div id="walletPillContainer"></div>
   </div>
 </header>
 
@@ -79,11 +80,13 @@
 </main>
 
 <script src="shared.js"></script>
+<script src="wallet.js"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
   loadGeneration++; // invalidate any load still running against the previous network
 });
+initWalletPill(document.getElementById("walletPillContainer"));
 
 let loadGeneration = 0;
 
@@ -100,17 +103,20 @@ function tokenCardHtml(collectionPath, t) {
   const descHtml = t.display?.description
     ? `<div class="meta" title="${escapeHtml(t.display.description)}">${escapeHtml(truncate(t.display.description, 90))}</div>`
     : "";
+  const href = `nft.html?collection=${encodeURIComponent(collectionPath)}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
   return `
-    <div class="card" data-key="${escapeAttr(t.tokenId)}">
-      ${imgHtml}
-      <div class="body">
-        <div class="name">${escapeHtml(tokenName)}${swatch}</div>
-        <div class="meta">${escapeHtml(collectionPath)}</div>
-        ${descHtml}
-        ${attributesHtml(t.display?.attributes)}
-        <div class="meta">#${escapeHtml(t.tokenId)} &middot; owner ${truncAddr(t.owner)}</div>
+    <a class="card-link" href="${href}">
+      <div class="card" data-key="${escapeAttr(t.tokenId)}">
+        ${imgHtml}
+        <div class="body">
+          <div class="name">${escapeHtml(tokenName)}${swatch}</div>
+          <div class="meta">${escapeHtml(collectionPath)}</div>
+          ${descHtml}
+          ${attributesHtml(t.display?.attributes)}
+          <div class="meta">#${escapeHtml(t.tokenId)} &middot; owner ${truncAddr(t.owner)}</div>
+        </div>
       </div>
-    </div>`;
+    </a>`;
 }
 
 async function loadTokens() {

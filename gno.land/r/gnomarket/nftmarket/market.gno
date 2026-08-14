@@ -1,5 +1,5 @@
-// Package nftmarket is a fixed-price escrow marketplace for any GRC721
-// collection whose owning realm registers a market.NFT adapter (see
+// Package nftmarket is a fixed-price, non-custodial marketplace for any
+// GRC721 collection whose owning realm registers a market.NFT adapter (see
 // gno.land/p/gnomarket/market). It never imports a specific collection's
 // package — collections come to it at runtime as registered interface
 // values, so it can list and trade any compliant collection deployed by
@@ -8,14 +8,18 @@
 // Trade flow:
 //  1. The collection realm calls RegisterCollection once, handing over an
 //     adapter that satisfies market.NFT.
-//  2. A seller transfers their token to this realm's own address using the
-//     collection's normal transfer entrypoint (no marketplace involvement
-//     needed for that step — it's a plain GRC721 transfer).
-//  3. The seller calls List, which verifies the token is now owned by this
-//     realm before accepting the listing.
-//  4. A buyer calls Buy with the exact price attached as ugnot; the realm
-//     moves the token out of escrow to the buyer and forwards the payment
-//     to the seller, in that order (effects before interactions).
+//  2. A seller approves this realm's own address on the collection (via the
+//     collection's normal Approve or SetApprovalForAll) — no marketplace
+//     involvement needed for that step, it's a plain GRC721 approval call.
+//  3. The seller calls List, which verifies current ownership and approval
+//     before accepting the listing. The token stays in the seller's wallet.
+//  4. A buyer calls Buy with the exact price attached as ugnot. The realm
+//     re-verifies ownership/approval are still valid (either could have
+//     changed since List, since nothing was escrowed), moves the token
+//     directly from seller to buyer in one call, then splits payment
+//     between the seller and the platform fee recipient — effects before
+//     interactions throughout, and the token or funds are never held by
+//     this realm across more than one transaction.
 package nftmarket
 
 import (
@@ -27,6 +31,7 @@ import (
 
 	"gno.land/p/gnomarket/market"
 	"gno.land/p/nt/avl/v0"
+	"gno.land/p/nt/ownable/v0"
 	"gno.land/p/nt/ufmt/v0"
 )
 
@@ -34,7 +39,52 @@ var (
 	collections  = avl.NewTree() // collectionID (registrant's own PkgPath) -> market.NFT
 	listings     = avl.NewTree() // listingKey -> *market.Listing
 	listingOrder []string        // insertion order, for pagination/render
+
+	admin *ownable.Ownable
 )
+
+// Fee is charged only on a completed Buy, taken out of the sale price
+// (never added on top of it) and forwarded to whoever currently holds
+// admin rights. FeeModePercent uses basis points (1/100 of a percent, e.g.
+// 250 = 2.5%) — the same convention used elsewhere in the gno.land
+// ecosystem for exactly this. maxFeeBps sanity-caps percent mode so a
+// fat-fingered admin call can't accidentally set a predatory rate; flat
+// mode is separately clamped to never exceed the sale price itself (see
+// computeFee).
+const (
+	FeeModeFlat    = "flat"
+	FeeModePercent = "percent"
+
+	maxFeeBps = 5000 // 50% ceiling for FeeModePercent
+)
+
+var (
+	feeMode        = FeeModeFlat
+	feeValue int64 = 1_000_000 // 1 GNOT flat — testing default, see SetFee
+)
+
+func init() {
+	// Deliberately left unset (empty owner) rather than derived from
+	// cur.Previous() here: init() runs during package loading, before any
+	// realistic MsgAddPackage-origin call frame exists to derive "who
+	// deployed this" from — confirmed empty in practice, not just assumed.
+	// ClaimAdmin below is the explicit, two-step way to establish it,
+	// matching the ecosystem's own convention of treating the initial
+	// admin as something set deliberately rather than inferred at init
+	// time (e.g. memba_nft_v2's AdminAddress is a plain deploy-time
+	// constant, not derived dynamically either).
+	admin = ownable.NewWithAddress("")
+}
+
+// ClaimAdmin lets the caller become fee-governance admin — but only once,
+// while no admin has been claimed yet. Call this yourself immediately
+// after deploying this realm.
+func ClaimAdmin(cur realm) {
+	if admin.Owner() != "" {
+		panic("admin already claimed")
+	}
+	admin = ownable.NewWithAddress(cur.Previous().Address())
+}
 
 func listingKey(collectionID, tid string) string {
 	return collectionID + ":" + tid
@@ -46,6 +96,67 @@ func removeFromOrder(key string) {
 			listingOrder = append(listingOrder[:i], listingOrder[i+1:]...)
 			return
 		}
+	}
+}
+
+func computeFee(price int64) int64 {
+	if admin.Owner() == "" {
+		return 0 // no one to receive a fee until ClaimAdmin is called
+	}
+	var fee int64
+	switch feeMode {
+	case FeeModePercent:
+		fee = price * feeValue / 10_000
+	default: // FeeModeFlat
+		fee = feeValue
+	}
+	if fee > price {
+		fee = price // never charge more than the sale itself
+	}
+	if fee < 0 {
+		fee = 0
+	}
+	return fee
+}
+
+// Admin returns the current fee-governance admin address.
+func Admin() address {
+	return admin.Owner()
+}
+
+// GetFee returns the current fee mode ("flat" or "percent") and value
+// (ugnot for flat, basis points for percent).
+func GetFee() (mode string, value int64) {
+	return feeMode, feeValue
+}
+
+// EstimateFee returns the fee that would be charged on a sale at price
+// under the current fee configuration — for frontends to display before
+// a Buy.
+func EstimateFee(price int64) int64 {
+	return computeFee(price)
+}
+
+// SetFee changes the fee mode/value. Admin-only.
+func SetFee(cur realm, mode string, value int64) {
+	admin.AssertOwnedBy(cur.Previous().Address())
+	if mode != FeeModeFlat && mode != FeeModePercent {
+		panic(`fee mode must be "flat" or "percent"`)
+	}
+	if value < 0 {
+		panic("fee value must not be negative")
+	}
+	if mode == FeeModePercent && value > maxFeeBps {
+		panic(ufmt.Sprintf("percent fee capped at %d bps (%d%%)", maxFeeBps, maxFeeBps/100))
+	}
+	feeMode = mode
+	feeValue = value
+}
+
+// TransferAdmin hands fee governance to a new address. Admin-only.
+func TransferAdmin(cur realm, newAdmin address) {
+	if err := admin.TransferOwnership(0, cur, newAdmin); err != nil {
+		panic(err.Error())
 	}
 }
 
@@ -74,6 +185,14 @@ func mustCollection(collectionID string) market.NFT {
 func getListing(key string) (*market.Listing, bool) {
 	l, ok := listings.Get(key).(*market.Listing)
 	return l, ok
+}
+
+func isApproved(nft market.NFT, owner, marketAddr address, tid string) bool {
+	approved, err := nft.GetApproved(tid)
+	if err != nil {
+		panic(err.Error())
+	}
+	return approved == marketAddr || nft.IsApprovedForAll(owner, marketAddr)
 }
 
 // IsRegistered reports whether collectionID has a registered adapter.
@@ -108,33 +227,40 @@ func GetRegisteredCollectionsPage(offset, limit int) string {
 }
 
 // MarketAddress returns this realm's own address — the address a seller
-// must transfer a token to (escrow) before calling List.
+// must approve (via the collection's Approve or SetApprovalForAll) before
+// calling List. The token itself never moves here.
 func MarketAddress() address {
 	return unsafe.CurrentRealm().Address()
 }
 
 // List creates a fixed-price listing for tid. PREREQUISITE: the caller must
-// have already transferred tid to this realm's own address (GetAddress)
-// using the collection's normal transfer entrypoint — List only records the
-// sale terms, it does not itself pull the token.
+// currently own tid AND have approved this marketplace's address on the
+// collection (Approve or SetApprovalForAll) — List only verifies and
+// records the sale terms, it never moves the token.
 func List(cur realm, collectionID, tid string, price int64) {
 	if price <= 0 {
 		panic("price must be positive")
 	}
 	nft := mustCollection(collectionID)
+	seller := cur.Previous().Address()
+
 	owner, err := nft.OwnerOf(tid)
 	if err != nil {
 		panic(err.Error())
 	}
-	marketAddr := cur.Address()
-	if owner != marketAddr {
-		panic("token is not escrowed to the marketplace — transfer it to " + marketAddr.String() + " first")
+	if owner != seller {
+		panic("caller does not own this token")
 	}
+
+	marketAddr := cur.Address()
+	if !isApproved(nft, seller, marketAddr, tid) {
+		panic("marketplace is not approved to transfer this token — call Approve or SetApprovalForAll on the collection first")
+	}
+
 	key := listingKey(collectionID, tid)
 	if listings.Has(key) {
 		panic("already listed")
 	}
-	seller := cur.Previous().Address()
 	listings.Set(key, &market.Listing{
 		CollectionID: collectionID,
 		TokenID:      tid,
@@ -145,8 +271,11 @@ func List(cur realm, collectionID, tid string, price int64) {
 	listingOrder = append(listingOrder, key)
 }
 
-// Cancel removes a listing and returns the token to the seller. Only the
-// original seller may cancel.
+// Cancel removes a listing. Only the original seller may cancel. Since the
+// token was never escrowed, there's nothing to transfer back — this is
+// pure bookkeeping. (A seller can equivalently just revoke the collection
+// approval directly; Cancel exists so the marketplace's own listing state
+// stays accurate without requiring that.)
 func Cancel(cur realm, collectionID, tid string) {
 	key := listingKey(collectionID, tid)
 	l, ok := getListing(key)
@@ -156,15 +285,8 @@ func Cancel(cur realm, collectionID, tid string) {
 	if cur.Previous().Address() != l.Seller {
 		panic("only the seller can cancel this listing")
 	}
-
-	// Effects before interactions.
 	listings.Remove(key)
 	removeFromOrder(key)
-
-	nft := mustCollection(collectionID)
-	if err := nft.TransferFrom(cross(cur), cur.Address(), l.Seller, tid); err != nil {
-		panic(err.Error())
-	}
 }
 
 // UpdatePrice changes the price of an existing listing. Only the seller may
@@ -185,7 +307,11 @@ func UpdatePrice(cur realm, collectionID, tid string, newPrice int64) {
 }
 
 // Buy purchases a listed token. The caller must send exactly the listing's
-// price in ugnot with the transaction.
+// price in ugnot with the transaction. Re-verifies the seller still owns
+// the token and the marketplace is still approved (either could have
+// changed since List, since nothing was ever escrowed) before moving
+// anything — then moves the token straight from seller to buyer and
+// splits payment between the seller and the fee recipient, atomically.
 func Buy(cur realm, collectionID, tid string) {
 	// Without this, an intermediary realm could call Buy on a user's behalf
 	// and receive the token itself while funneling that user's ugnot as the
@@ -208,17 +334,36 @@ func Buy(cur realm, collectionID, tid string) {
 		panic(ufmt.Sprintf("payment must be exactly %d ugnot", l.Price))
 	}
 
+	nft := mustCollection(collectionID)
+	owner, err := nft.OwnerOf(tid)
+	if err != nil {
+		panic(err.Error())
+	}
+	if owner != l.Seller {
+		panic("seller no longer owns this token — listing is stale")
+	}
+	marketAddr := cur.Address()
+	if !isApproved(nft, l.Seller, marketAddr, tid) {
+		panic("seller has revoked the marketplace's approval — listing is stale")
+	}
+
 	// Effects before interactions.
 	listings.Remove(key)
 	removeFromOrder(key)
 
-	nft := mustCollection(collectionID)
-	if err := nft.TransferFrom(cross(cur), cur.Address(), buyer, tid); err != nil {
+	if err := nft.TransferFrom(cross(cur), l.Seller, buyer, tid); err != nil {
 		panic(err.Error())
 	}
 
+	fee := computeFee(l.Price)
+	sellerProceeds := l.Price - fee
 	stdBanker := banker.NewBanker(banker.BankerTypeRealmSend, cur)
-	stdBanker.SendCoins(cur.Address(), l.Seller, chain.Coins{{"ugnot", l.Price}})
+	if sellerProceeds > 0 {
+		stdBanker.SendCoins(marketAddr, l.Seller, chain.Coins{{"ugnot", sellerProceeds}})
+	}
+	if fee > 0 {
+		stdBanker.SendCoins(marketAddr, admin.Owner(), chain.Coins{{"ugnot", fee}})
+	}
 }
 
 // GetListing returns a listing by collection and token ID.

@@ -20,8 +20,10 @@ func main(cur realm) {
 	testcollection.Mint(cross(cur), seller, "1")
 	testcollection.RegisterWithMarketplace(cross(cur))
 
+	// Single-token Approve this time (rather than SetApprovalForAll), for
+	// coverage of the other approval path List/Buy/Cancel accept.
 	testing.SetOriginCaller(seller)
-	testcollection.Transfer(cross(cur), marketAddr, "1")
+	testcollection.Approve(cross(cur), marketAddr, "1")
 
 	testing.SetOriginCaller(seller)
 	nftmarket.List(cross(cur), collectionID, "1", 1000)
@@ -29,6 +31,8 @@ func main(cur realm) {
 	testing.SetOriginCaller(seller)
 	nftmarket.Cancel(cross(cur), collectionID, "1")
 
+	// The token never left the seller's wallet in the first place — Cancel
+	// is pure bookkeeping, so ownership is unaffected either way.
 	owner, _ := testcollection.OwnerOf("1")
 	println("owner after cancel:", owner == seller)
 	println("listings after cancel:", nftmarket.ListingsCount())

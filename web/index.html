@@ -13,18 +13,9 @@
 <meta name="gnoconnect:chainid" content="dev" />
 <meta name="gnoconnect:txdomains" content="auto" />
 
-<!-- Works around a real bug in Adena's own extension (not a dApp-author
-     mistake): its content script computes its webpack publicPath via
-     document.currentScript.src (always empty for a content script), then
-     falls back to scanning the host page's own <script> tags for one with
-     an absolute http(s) src. A page with no external script tag has
-     nothing for it to find, so it throws "Automatic publicPath is not
-     supported in this browser" before ever setting window.adena: Connect
-     Adena then does nothing, silently, no popup, no error. This tag's URL
-     doesn't need to resolve — its mere presence is enough. See
+<!-- Works around a real bug in Adena's own extension — see
      ~/gno-land-dev-notes.md, "gno-observer: SOLVED — a window.adena that
-     never gets set", for the full root cause (traced into the installed
-     extension's actual shipped content.js). -->
+     never gets set". This tag's URL doesn't need to resolve. -->
 <script src="adena-compat.js"></script>
 
 <link rel="stylesheet" href="style.css" />
@@ -34,12 +25,11 @@
 <header>
   <div>
     <h1>gnomarket</h1>
-    <div class="sub">fixed-price NFT marketplace &middot; <span id="chainLabel"></span></div>
+    <div class="sub">non-custodial NFT marketplace &middot; <span id="chainLabel"></span></div>
   </div>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
-    <span id="walletAddr" class="mono status"></span>
-    <button id="connectBtn" class="secondary">Connect Adena</button>
+    <div id="walletPillContainer"></div>
   </div>
 </header>
 
@@ -56,54 +46,39 @@
   <section>
     <h2>Listings</h2>
     <div class="panel">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-        <span id="listingsStatus" class="status">Loading…</span>
+      <div class="toolbar">
+        <select id="collectionFilter"><option value="">All collections</option></select>
+        <select id="sortSelect">
+          <option value="date-desc">Newest first</option>
+          <option value="date-asc">Oldest first</option>
+          <option value="price-asc">Price: low to high</option>
+          <option value="price-desc">Price: high to low</option>
+        </select>
+        <span class="spacer"></span>
+        <span id="listingsStatus" class="status"></span>
         <button id="refreshBtn" class="secondary">Refresh</button>
+        <div class="view-toggle">
+          <button id="viewGridLarge" class="active" title="Large grid">▦</button>
+          <button id="viewGridSmall" title="Small grid">▤</button>
+          <button id="viewList" title="List">☰</button>
+        </div>
       </div>
       <div id="grid" class="grid"></div>
+      <div id="listWrap" style="display:none; overflow-x:auto;">
+        <table class="simple listings">
+          <thead><tr><th></th><th>Item</th><th>Collection</th><th>Price</th><th>Seller</th><th></th></tr></thead>
+          <tbody id="listBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
   <section>
     <h2>Sell an NFT</h2>
-    <div class="panel">
-      <p class="status">
-        Selling is two steps: escrow the token to the marketplace's own address, then create the listing.
-        Marketplace address: <span class="mono" id="marketAddr">loading…</span>
-      </p>
-      <div class="row">
-        <div class="field">
-          <label>Collection (registered with this marketplace)</label>
-          <select id="sellCollection" class="field-input"></select>
-        </div>
-        <div class="field">
-          <label>Token ID</label>
-          <input type="text" id="sellTokenId" placeholder="e.g. 4" />
-        </div>
-        <div class="field">
-          <label>Price (GNOT)</label>
-          <input type="number" id="sellPrice" placeholder="e.g. 1.5" min="0" step="0.000001" />
-        </div>
-      </div>
-      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-        <button id="escrowBtn" class="secondary">1. Send NFT to marketplace</button>
-        <button id="listBtn">2. Create listing</button>
-      </div>
-      <p class="status" id="sellStatus"></p>
-      <details>
-        <summary>Why two steps, and does step 1 work for any collection?</summary>
-        <p class="status">
-          The marketplace only ever holds tokens a seller explicitly escrows to it — it never has standing
-          permission to move your tokens. Step 1 calls the token's own collection contract directly using
-          the same entrypoint name (<code>Transfer(cur realm, to address, tid string)</code>) as this repo's
-          demo collection — a different collection may name its transfer entrypoint differently, in which
-          case use that collection's own interface (e.g. its gnoweb page) for step 1, then come back here
-          for step 2. Step 2 (<code>List</code>) is the same for every collection registered with the
-          marketplace. Looking for other collections to trade? See the <a href="collections.html">Collections</a>
-          page — a collection only appears in the picker above once its own realm registers with this
-          marketplace (see About, below).
-        </p>
-      </details>
+    <div class="panel status">
+      Own an NFT from a registered collection? Open it from the
+      <a href="nfts.html">NFTs</a> or <a href="collections.html">Collections</a> page — its own detail view is
+      where you approve the marketplace and set a price.
     </div>
   </section>
 
@@ -113,13 +88,14 @@
       <p>
         Realm: <span class="mono" id="pkgpathLabel"></span> &middot;
         <a id="gnowebLink" href="#" target="_blank" rel="noopener">view on gnoweb</a>
+        &middot; <span id="feeLabel"></span>
       </p>
       <p>
         This marketplace trades any GRC721 collection whose owning realm registers an adapter satisfying
         <span class="mono">gno.land/p/gnomarket/market.NFT</span> — it never imports a specific collection's
-        package. Registration is per-collection, done once by that collection's own author — after that,
-        any current owner of any token in it (regardless of who minted it or when) can sell it here. See
-        that package's doc comment for the ~10-line adapter shape a collection author writes.
+        package. A seller approves this realm's address on their own collection (standard <code>Approve</code>
+        or <code>SetApprovalForAll</code>) and lists — the token stays in their wallet until the moment it
+        sells, atomically, in the same transaction as payment.
       </p>
       <p id="adenaNote"></p>
     </div>
@@ -128,10 +104,14 @@
 </main>
 
 <script src="shared.js"></script>
+<script src="wallet.js"></script>
 <script>
 // ---------------- network wiring ----------------
 
 initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
+initWalletPill(document.getElementById("walletPillContainer"));
+
+let allListings = []; // enriched, unfiltered — sort/filter re-render from this without a refetch
 
 function applyNetwork() {
   const n = net();
@@ -141,33 +121,23 @@ function applyNetwork() {
   updateGnoConnectMeta();
 
   const banner = document.getElementById("deployBanner");
-  const sellSection = document.getElementById("sellCollection").closest("section");
   if (!n.marketplaceDeployed) {
     banner.style.display = "block";
     banner.textContent =
       `The gnomarket realm isn't deployed on ${n.label} — browsing/trading through it is unavailable here. ` +
       `Switch to Local to try the full buy/sell flow. The Collections and NFTs pages still work (read-only) on any network.`;
-    sellSection.style.opacity = "0.5";
-    sellSection.style.pointerEvents = "none";
   } else {
     banner.style.display = "none";
-    sellSection.style.opacity = "1";
-    sellSection.style.pointerEvents = "auto";
   }
 
+  loadFee();
   loadListings();
-  loadMarketAddress();
-  loadSellCollections();
 }
 
 // ---------------- reads: this marketplace ----------------
 
 async function qeval(expr) {
   return qevalOn(CONFIG.marketPkgPath, expr);
-}
-
-async function fetchMarketAddress() {
-  return parseGnoLines(await qeval("MarketAddress()"))[0];
 }
 
 async function fetchListings() {
@@ -184,61 +154,26 @@ async function fetchTokenInfo(collectionID, tokenId) {
   return { name, tokenURI, owner };
 }
 
-async function fetchRegisteredCollections() {
-  const raw = parseGnoLines(await qeval("GetRegisteredCollectionsPage(0, 100)"))[0] || "";
-  return raw.split("\n").filter(Boolean).map((line) => {
-    const [collectionID, name] = line.split("|");
-    return { collectionID, name };
-  });
+async function loadFee() {
+  const el = document.getElementById("feeLabel");
+  if (!net().marketplaceDeployed) { el.textContent = ""; return; }
+  try {
+    const [mode, value] = parseGnoLines(await qeval("GetFee()"));
+    el.textContent = mode === "percent"
+      ? `platform fee: ${(value / 100).toFixed(2)}%`
+      : `platform fee: ${ugnotToGnot(value)} GNOT flat`;
+  } catch {
+    el.textContent = "";
+  }
 }
 
 // ---------------- render: listings ----------------
 
-let marketAddress = null;
-
-async function loadMarketAddress() {
-  const el = document.getElementById("marketAddr");
-  if (!net().marketplaceDeployed) {
-    marketAddress = null;
-    el.textContent = "not deployed on " + net().label;
-    return;
-  }
-  el.textContent = "loading…";
-  try {
-    marketAddress = await fetchMarketAddress();
-    el.textContent = marketAddress;
-  } catch (err) {
-    marketAddress = null;
-    el.textContent = "error: " + err.message;
-  }
-}
-
-async function loadSellCollections() {
-  const select = document.getElementById("sellCollection");
-  select.innerHTML = "";
-  if (!net().marketplaceDeployed) {
-    select.appendChild(new Option("(marketplace not deployed on " + net().label + ")", ""));
-    return;
-  }
-  try {
-    const collections = await fetchRegisteredCollections();
-    if (collections.length === 0) {
-      select.appendChild(new Option("(no collections registered yet)", ""));
-      return;
-    }
-    for (const c of collections) {
-      select.appendChild(new Option(`${c.name} — ${c.collectionID}`, c.collectionID));
-    }
-  } catch {
-    select.appendChild(new Option("error loading collections", ""));
-  }
-}
-
 async function loadListings() {
   const statusEl = document.getElementById("listingsStatus");
-  const grid = document.getElementById("grid");
   if (!net().marketplaceDeployed) {
-    grid.innerHTML = "";
+    allListings = [];
+    renderListings();
     statusEl.textContent = `Not applicable — gnomarket isn't deployed on ${net().label}.`;
     statusEl.className = "status";
     return;
@@ -247,31 +182,82 @@ async function loadListings() {
   statusEl.className = "status";
   try {
     const listings = await fetchListings();
+    // Preserve insertion order (oldest first, as returned) as a proxy for
+    // listing date — the realm exposes no separate "get CreatedAt" reader.
+    listings.forEach((l, i) => { l.order = i; });
     if (listings.length === 0) {
-      grid.innerHTML = "";
+      allListings = [];
+      renderListings();
       statusEl.textContent = "No active listings.";
       return;
     }
-    const enriched = await mapLimit(listings, 6, async (l) => {
+    allListings = await mapLimit(listings, 6, async (l) => {
       try {
-        const info = await fetchTokenInfo(l.collectionID, l.tokenId); // {name: COLLECTION name, tokenURI, owner}
-        const display = await fetchTokenDisplayInfo(l.collectionID, l.tokenId, info.tokenURI); // per-token name/image/description/backgroundColor
+        const info = await fetchTokenInfo(l.collectionID, l.tokenId);
+        const display = await fetchTokenDisplayInfo(l.collectionID, l.tokenId, info.tokenURI);
         return { ...l, info, display };
       } catch (err) {
         return { ...l, info: null, display: null, infoError: err.message };
       }
     });
-    grid.innerHTML = enriched.map(cardHtml).join("");
     statusEl.textContent = `${listings.length} active listing${listings.length === 1 ? "" : "s"}.`;
-    wireCardActions(enriched);
+    populateCollectionFilter();
+    renderListings();
   } catch (err) {
     statusEl.textContent = "Failed to load listings: " + err.message;
     statusEl.className = "status error";
   }
 }
 
-function cardId(l) {
-  return `${l.collectionID}::${l.tokenId}`.replace(/[^a-zA-Z0-9]/g, "_");
+function populateCollectionFilter() {
+  const sel = document.getElementById("collectionFilter");
+  const prev = sel.value;
+  const seen = new Map();
+  for (const l of allListings) seen.set(l.collectionID, l.info?.name || l.collectionID);
+  sel.innerHTML = '<option value="">All collections</option>' +
+    [...seen.entries()].map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join("");
+  if ([...seen.keys()].includes(prev)) sel.value = prev;
+}
+
+function sortedFilteredListings() {
+  const filterId = document.getElementById("collectionFilter").value;
+  const sort = document.getElementById("sortSelect").value;
+  let items = filterId ? allListings.filter((l) => l.collectionID === filterId) : allListings.slice();
+  const cmp = {
+    "date-desc": (a, b) => b.order - a.order,
+    "date-asc": (a, b) => a.order - b.order,
+    "price-asc": (a, b) => a.price - b.price,
+    "price-desc": (a, b) => b.price - a.price,
+  }[sort];
+  if (cmp) items.sort(cmp);
+  return items;
+}
+
+let currentView = "grid-large";
+
+function renderListings() {
+  const items = sortedFilteredListings();
+  const grid = document.getElementById("grid");
+  const listWrap = document.getElementById("listWrap");
+  const listBody = document.getElementById("listBody");
+
+  if (currentView === "list") {
+    grid.style.display = "none";
+    listWrap.style.display = "block";
+    listBody.innerHTML = items.map(listRowHtml).join("");
+    listBody.querySelectorAll("tr.clickable").forEach((row) => {
+      row.addEventListener("click", () => { location.href = row.dataset.href; });
+    });
+  } else {
+    grid.style.display = "grid";
+    grid.className = currentView === "grid-small" ? "grid grid-compact" : "grid";
+    listWrap.style.display = "none";
+    grid.innerHTML = items.map(cardHtml).join("");
+  }
+}
+
+function itemHref(l) {
+  return `nft.html?collection=${encodeURIComponent(l.collectionID)}&tid=${encodeURIComponent(l.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
 }
 
 function cardHtml(l) {
@@ -283,310 +269,49 @@ function cardHtml(l) {
   const swatch = l.display?.backgroundColor
     ? `<span class="swatch" style="background:#${escapeHtml(l.display.backgroundColor)}" title="Background #${escapeHtml(l.display.backgroundColor)}"></span>`
     : "";
-  const descHtml = l.display?.description
-    ? `<div class="meta" title="${escapeHtml(l.display.description)}">${escapeHtml(truncate(l.display.description, 90))}</div>`
-    : "";
   return `
-    <div class="card" data-key="${cardId(l)}">
-      ${imgHtml}
-      <div class="body">
-        <div class="name">${escapeHtml(tokenName)}${swatch}</div>
-        <div class="meta">${escapeHtml(collectionName)}</div>
-        ${descHtml}
-        ${attributesHtml(l.display?.attributes)}
-        <div class="meta">#${escapeHtml(l.tokenId)} &middot; seller ${truncAddr(l.seller)}</div>
-        <div class="price">${ugnotToGnot(l.price)} GNOT</div>
-        <div class="actions">
-          <button data-action="buy">Buy</button>
-          <button data-action="cancel" class="secondary">Cancel (seller only)</button>
+    <a class="card-link" href="${itemHref(l)}">
+      <div class="card">
+        ${imgHtml}
+        <div class="body">
+          <div class="name">${escapeHtml(tokenName)}${swatch}</div>
+          <div class="meta">${escapeHtml(collectionName)}</div>
+          ${attributesHtml(l.display?.attributes)}
+          <div class="meta">#${escapeHtml(l.tokenId)} &middot; seller ${truncAddr(l.seller)}</div>
+          <div class="price">${ugnotToGnot(l.price)} GNOT</div>
         </div>
       </div>
-    </div>`;
+    </a>`;
 }
 
-function wireCardActions(listings) {
-  for (const l of listings) {
-    const card = document.querySelector(`.card[data-key="${cardId(l)}"]`);
-    if (!card) continue;
-    card.querySelector('[data-action="buy"]').addEventListener("click", () => buyListing(l));
-    card.querySelector('[data-action="cancel"]').addEventListener("click", () => cancelListing(l));
-  }
+function listRowHtml(l) {
+  const tokenName = l.display?.name || `Token ${l.tokenId}`;
+  const collectionName = l.info?.name || l.collectionID;
+  const imgHtml = l.display?.image ? `<img src="${escapeHtml(l.display.image)}" alt="" />` : "";
+  return `
+    <tr class="clickable" data-href="${itemHref(l)}">
+      <td>${imgHtml}</td>
+      <td class="name-cell">${escapeHtml(tokenName)}</td>
+      <td class="meta">${escapeHtml(collectionName)}</td>
+      <td class="price">${ugnotToGnot(l.price)} GNOT</td>
+      <td class="meta mono">${truncAddr(l.seller)}</td>
+      <td><a href="${itemHref(l)}">View &rarr;</a></td>
+    </tr>`;
 }
 
-// ---------------- Adena wallet integration ----------------
-// API verified against the real installed extension (see gno-observer's
-// connectAdena, and ~/gno-land-dev-notes.md): AddEstablish/GetAccount/
-// DoContract all resolve to {status: "success"|"failure", data, message} —
-// never assume success just because the call didn't throw. Adena injects
-// `window.adena` on http(s) pages only (not file://), and needs the
-// adena-compat.js workaround above regardless.
-
-// Adena tracks per-domain approval itself (AddEstablish whitelists the
-// origin on its side); this flag is only OUR record of "the user completed
-// that flow before", so a page reload can silently redo the round-trip
-// instead of always dropping back to a disconnected button. Never store the
-// address itself — always re-read that fresh via GetAccount().
-const ADENA_CONNECTED_KEY = "gnomarket:adenaConnected";
-
-let connectedAddress = null;
-let adenaListenerRegistered = false;
-let adenaConnecting = false;
-
-function setConnectBtnState(state, label) {
-  const btn = document.getElementById("connectBtn");
-  btn.classList.remove("connected");
-  btn.disabled = false;
-  btn.title = "";
-  switch (state) {
-    case "connecting":
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Connecting…';
-      break;
-    case "connected":
-      btn.classList.add("connected");
-      btn.textContent = label || "✓ Connected";
-      btn.title = "Click to disconnect";
-      break;
-    default: // idle
-      btn.textContent = "Connect Adena";
-  }
+function setView(view) {
+  currentView = view;
+  ["viewGridLarge", "viewGridSmall", "viewList"].forEach((id) => document.getElementById(id).classList.remove("active"));
+  document.getElementById({ "grid-large": "viewGridLarge", "grid-small": "viewGridSmall", "list": "viewList" }[view]).classList.add("active");
+  renderListings();
 }
 
-function setWalletStatus(msg, cls = "status") {
-  const el = document.getElementById("walletAddr");
-  el.textContent = msg;
-  el.className = cls;
-}
-
-// Does the actual AddEstablish + GetAccount round-trip; throws on failure,
-// resolves to the connected address on success. No UI/storage side effects
-// here — connectAdena() and autoReconnectAdena() each wrap this with their
-// own feedback, since a failed *automatic* attempt on page load shouldn't
-// show the same alarming "connection failed" message a failed *manual*
-// click should.
-async function establishAdenaConnection() {
-  const establishRes = await window.adena.AddEstablish(CONFIG.adenaAppName);
-  // Adena reports status:"failure" with this message when the site was
-  // already authorized in a prior visit — not a real rejection, just a
-  // redundant no-op.
-  const alreadyConnected = /already connected/i.test(establishRes?.message || "");
-  if (establishRes?.status !== "success" && !alreadyConnected) {
-    throw new Error(establishRes?.message || "Connection request was not approved.");
-  }
-
-  const accountRes = await window.adena.GetAccount();
-  if (accountRes?.status !== "success" || !accountRes.data?.address) {
-    throw new Error(accountRes?.message || "Could not read the connected account.");
-  }
-  return accountRes.data.address;
-}
-
-function applyAdenaConnectedUI(address) {
-  connectedAddress = address;
-  setConnectBtnState("connected");
-  setWalletStatus(truncAddr(connectedAddress), "status ok");
-
-  if (!adenaListenerRegistered) {
-    // Adena has no "off"/unsubscribe API, so this listener outlives any
-    // later disconnectAdena() call on the same page — guard on the
-    // button's live state so a still-registered listener doesn't silently
-    // reconnect the UI if the user switches accounts in the extension
-    // after clicking Disconnect, without reloading the page.
-    window.adena.On?.("changedAccount", (newAddress) => {
-      if (!newAddress) return;
-      if (!document.getElementById("connectBtn").classList.contains("connected")) return;
-      connectedAddress = typeof newAddress === "string" ? newAddress : newAddress?.address;
-      setConnectBtnState("connected");
-      setWalletStatus(truncAddr(connectedAddress), "status ok");
-    });
-    adenaListenerRegistered = true;
-  }
-
-  try { localStorage.setItem(ADENA_CONNECTED_KEY, "1"); } catch { /* ignore */ }
-}
-
-// Adena has no JS API for a page to revoke its own access — that's by
-// design, the extension owns its whitelist, not the page. "Disconnect"
-// here means forgetting OUR side of it: stop treating this browser as
-// connected, so the next load goes back to idle instead of
-// auto-reconnecting. A user who wants Adena's own per-domain approval
-// actually revoked still has to do that from the extension itself.
-function disconnectAdena() {
-  connectedAddress = null;
-  setConnectBtnState("idle");
-  setWalletStatus("");
-  try { localStorage.removeItem(ADENA_CONNECTED_KEY); } catch { /* ignore */ }
-}
-
-async function connectAdena() {
-  if (adenaConnecting) return connectedAddress;
-  if (typeof window.adena === "undefined") {
-    setWalletStatus("Adena not detected — install it from adena.app, and serve this page over http(s), not file://.", "status error");
-    return null;
-  }
-  adenaConnecting = true;
-  setConnectBtnState("connecting");
-  setWalletStatus("Connecting to Adena…");
-  try {
-    applyAdenaConnectedUI(await establishAdenaConnection());
-    return connectedAddress;
-  } catch (err) {
-    setConnectBtnState("idle");
-    setWalletStatus("Connection failed: " + err.message, "status error");
-    try { localStorage.removeItem(ADENA_CONNECTED_KEY); } catch { /* ignore */ }
-    return null;
-  } finally {
-    adenaConnecting = false;
-  }
-}
-
-// Content scripts (Adena's included) commonly inject at "document_idle",
-// which can run AFTER a page's own inline <script> has already executed
-// during HTML parsing — so a single synchronous `typeof window.adena`
-// check right at page load can catch it mid-injection and see "undefined"
-// even though it appears a few hundred ms later (confirmed against the
-// real installed extension, not a mock — a mock resolves instantly and
-// hides this entirely). Poll briefly instead of checking once; a
-// first-time visitor never even calls this (see the wasConnected guard in
-// autoReconnectAdena), so this added wait never affects them.
-function waitForAdena(timeoutMs = 3000, intervalMs = 150) {
-  return new Promise((resolve) => {
-    if (typeof window.adena !== "undefined") { resolve(true); return; }
-    const start = Date.now();
-    const timer = setInterval(() => {
-      if (typeof window.adena !== "undefined") {
-        clearInterval(timer);
-        resolve(true);
-      } else if (Date.now() - start > timeoutMs) {
-        clearInterval(timer);
-        resolve(false);
-      }
-    }, intervalMs);
-  });
-}
-
-// Runs once on page load. If the user connected successfully before (per
-// our own localStorage flag), silently redo the same AddEstablish +
-// GetAccount round-trip — since the domain is already whitelisted on
-// Adena's side, this resolves without a popup, so the connection genuinely
-// survives a refresh instead of dropping back to a disconnected "Connect
-// Adena" button every time. Skipped entirely for first-time visitors (no
-// flag yet), so they never get a surprise popup or pay the waitForAdena
-// polling cost.
-async function autoReconnectAdena() {
-  let wasConnected = false;
-  try { wasConnected = localStorage.getItem(ADENA_CONNECTED_KEY) === "1"; } catch { /* ignore */ }
-  if (!wasConnected) return;
-
-  if (!(await waitForAdena())) return; // extension not present / never injected — leave idle
-
-  adenaConnecting = true;
-  setConnectBtnState("connecting");
-  setWalletStatus("Restoring your Adena connection…");
-  try {
-    applyAdenaConnectedUI(await establishAdenaConnection());
-  } catch {
-    // Silent on purpose — this attempt was automatic, not something the
-    // user clicked, so a scary "connection failed" message would be
-    // confusing. Just fall back to the normal idle button; a real click
-    // still works exactly as before.
-    setConnectBtnState("idle");
-    setWalletStatus("");
-    try { localStorage.removeItem(ADENA_CONNECTED_KEY); } catch { /* ignore */ }
-  } finally {
-    adenaConnecting = false;
-  }
-}
-
-async function ensureConnected() {
-  if (connectedAddress) return connectedAddress;
-  return connectAdena();
-}
-
-async function signAndBroadcast(pkgPath, func, args, sendCoins, statusEl) {
-  const addr = await ensureConnected();
-  if (!addr) return false;
-  statusEl.textContent = "Waiting for approval in Adena…";
-  statusEl.className = "status";
-  try {
-    const res = await window.adena.DoContract({
-      messages: [{
-        type: "/vm.m_call",
-        value: { caller: addr, send: sendCoins || "", pkg_path: pkgPath, func, args },
-      }],
-    });
-    if (res?.status !== "success") throw new Error(res?.message || `${func} was not approved or failed.`);
-    statusEl.textContent = `${func} submitted.`;
-    statusEl.className = "status ok";
-    return true;
-  } catch (err) {
-    statusEl.textContent = `${func} failed: ` + (err?.message || err);
-    statusEl.className = "status error";
-    return false;
-  }
-}
-
-async function buyListing(l) {
-  const statusEl = document.getElementById("listingsStatus");
-  const ok = await signAndBroadcast(CONFIG.marketPkgPath, "Buy", [l.collectionID, l.tokenId], `${l.price}ugnot`, statusEl);
-  if (ok) setTimeout(loadListings, 1500);
-}
-
-async function cancelListing(l) {
-  const statusEl = document.getElementById("listingsStatus");
-  const ok = await signAndBroadcast(CONFIG.marketPkgPath, "Cancel", [l.collectionID, l.tokenId], "", statusEl);
-  if (ok) setTimeout(loadListings, 1500);
-}
-
-// ---------------- sell flow ----------------
-
-async function escrowToMarket() {
-  const statusEl = document.getElementById("sellStatus");
-  const collectionID = document.getElementById("sellCollection").value;
-  const tokenId = document.getElementById("sellTokenId").value.trim();
-  if (!collectionID || !tokenId) { statusEl.textContent = "Pick a collection and fill in the token ID first."; statusEl.className = "status error"; return; }
-  if (!marketAddress) { statusEl.textContent = "Marketplace address not loaded yet."; statusEl.className = "status error"; return; }
-  await signAndBroadcast(collectionID, "Transfer", [marketAddress, tokenId], "", statusEl);
-  if (statusEl.className === "status ok") statusEl.textContent = 'Token escrowed. Now click "2. Create listing".';
-}
-
-async function createListing() {
-  const statusEl = document.getElementById("sellStatus");
-  const collectionID = document.getElementById("sellCollection").value;
-  const tokenId = document.getElementById("sellTokenId").value.trim();
-  const priceGnot = parseFloat(document.getElementById("sellPrice").value);
-  if (!collectionID || !tokenId || !(priceGnot > 0)) {
-    statusEl.textContent = "Pick a collection, fill in the token ID, and a positive price first.";
-    statusEl.className = "status error";
-    return;
-  }
-  const priceUgnot = Math.round(priceGnot * 1_000_000);
-  const ok = await signAndBroadcast(CONFIG.marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "", statusEl);
-  if (ok) setTimeout(loadListings, 1500);
-}
-
-// ---------------- wire up ----------------
-
-document.getElementById("connectBtn").addEventListener("click", () => {
-  const btn = document.getElementById("connectBtn");
-  if (btn.classList.contains("connected")) {
-    disconnectAdena();
-  } else {
-    connectAdena();
-  }
-});
-// Swap the connected button's label to "Disconnect" on hover so the
-// click's dual meaning (connect when idle, disconnect when connected) is
-// discoverable rather than surprising.
-document.getElementById("connectBtn").addEventListener("mouseenter", (e) => {
-  if (e.target.classList.contains("connected")) e.target.textContent = "Disconnect";
-});
-document.getElementById("connectBtn").addEventListener("mouseleave", (e) => {
-  if (e.target.classList.contains("connected")) e.target.textContent = "✓ Connected";
-});
+document.getElementById("viewGridLarge").addEventListener("click", () => setView("grid-large"));
+document.getElementById("viewGridSmall").addEventListener("click", () => setView("grid-small"));
+document.getElementById("viewList").addEventListener("click", () => setView("list"));
+document.getElementById("collectionFilter").addEventListener("change", renderListings);
+document.getElementById("sortSelect").addEventListener("change", renderListings);
 document.getElementById("refreshBtn").addEventListener("click", loadListings);
-document.getElementById("escrowBtn").addEventListener("click", escrowToMarket);
-document.getElementById("listBtn").addEventListener("click", createListing);
 
 if (location.protocol === "file:") {
   document.getElementById("adenaNote").textContent =
@@ -594,7 +319,6 @@ if (location.protocol === "file:") {
 }
 
 applyNetwork();
-autoReconnectAdena();
 </script>
 </body>
 </html>

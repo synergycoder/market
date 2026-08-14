@@ -1,0 +1,218 @@
+// Shared Adena wallet pill — address (truncated) + GNOT balance + connect/
+// disconnect, wired into any page that calls initWalletPill(). Adapted from
+// gno-tools/tools/lib/adena-connect.js ("solved a lot of hiccups" per the
+// user) but kept as a plain <script> (not an ES module) to match this
+// project's no-build-step convention — every other page here is a flat
+// <script src>, and mixing module/non-module script styles across pages
+// would be its own source of hiccups.
+//
+// Requires shared.js's CONFIG.adenaAppName and truncAddr() to already be
+// loaded first (see NETWORKS/CONFIG in shared.js).
+
+// ---------------- localStorage "was connected before" flag ----------------
+// Adena tracks per-domain approval itself; this is only OUR record of "the
+// user completed AddEstablish before", so a reload can silently redo that
+// round-trip instead of always showing a disconnected button. Never stores
+// the address — that's always re-read fresh via GetAccount().
+const WALLET_CONNECTED_KEY = "gnomarket:adenaConnected";
+
+let walletAddress = null;
+let walletChainId = null;
+let walletConnecting = false;
+let walletListenerRegistered = false;
+let walletPillEls = null; // { root, btn, addr, balance }
+
+function isAvailableAdena() {
+  return typeof window.adena !== "undefined";
+}
+
+// Adena's content script can inject after this page's own script already
+// ran — a single synchronous check can false-negative. Poll briefly instead.
+function waitForAdena(timeoutMs = 3000, intervalMs = 150) {
+  return new Promise((resolve) => {
+    if (isAvailableAdena()) { resolve(true); return; }
+    const start = Date.now();
+    const timer = setInterval(() => {
+      if (isAvailableAdena()) {
+        clearInterval(timer);
+        resolve(true);
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, intervalMs);
+  });
+}
+
+async function establishAdenaConnection() {
+  const establishRes = await window.adena.AddEstablish(CONFIG.adenaAppName);
+  const alreadyConnected = /already connected/i.test(establishRes?.message || "");
+  if (establishRes?.status !== "success" && !alreadyConnected) {
+    throw new Error(establishRes?.message || "Connection request was not approved.");
+  }
+  const accountRes = await window.adena.GetAccount();
+  if (accountRes?.status !== "success" || !accountRes.data?.address) {
+    throw new Error(accountRes?.message || "Could not read the connected account.");
+  }
+  return accountRes.data; // { address, chainId, coins }
+}
+
+function formatGnotBalance(coinsStr) {
+  const m = /^(\d+)ugnot$/.exec(coinsStr || "");
+  if (!m) return null;
+  return (Number(m[1]) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 }) + " GNOT";
+}
+
+function renderPillState(state) {
+  if (!walletPillEls) return;
+  const { root, btn, addr, balance } = walletPillEls;
+  switch (state) {
+    case "connecting":
+      root.classList.remove("connected");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Connecting…';
+      addr.textContent = "";
+      balance.textContent = "";
+      break;
+    case "connected":
+      root.classList.add("connected");
+      btn.disabled = false;
+      btn.textContent = "Disconnect";
+      addr.textContent = truncAddr(walletAddress);
+      addr.title = walletAddress;
+      break;
+    default: // idle
+      root.classList.remove("connected");
+      btn.disabled = false;
+      btn.textContent = "Connect Adena";
+      addr.textContent = "";
+      balance.textContent = "";
+  }
+}
+
+function applyConnectedUI(account) {
+  walletAddress = account.address;
+  walletChainId = account.chainId;
+  renderPillState("connected");
+  if (walletPillEls) walletPillEls.balance.textContent = formatGnotBalance(account.coins) || "";
+
+  if (!walletListenerRegistered) {
+    // Adena has no unsubscribe API, so this listener outlives any later
+    // disconnect on the same page — guard on live connected state so it
+    // doesn't silently reconnect the UI after a manual disconnect.
+    window.adena.On?.("changedAccount", (newAddress) => {
+      if (!newAddress || !walletPillEls?.root.classList.contains("connected")) return;
+      walletAddress = typeof newAddress === "string" ? newAddress : newAddress?.address;
+      renderPillState("connected");
+    });
+    walletListenerRegistered = true;
+  }
+  try { localStorage.setItem(WALLET_CONNECTED_KEY, "1"); } catch { /* ignore */ }
+  document.dispatchEvent(new CustomEvent("wallet:connected", { detail: { address: walletAddress } }));
+}
+
+// Adena has no page-side "revoke" API by design — Disconnect only forgets
+// our own "was connected" flag so a reload goes back to idle instead of
+// auto-reconnecting; the extension's own per-domain approval is untouched.
+function disconnectWallet() {
+  walletAddress = null;
+  walletChainId = null;
+  renderPillState("idle");
+  try { localStorage.removeItem(WALLET_CONNECTED_KEY); } catch { /* ignore */ }
+  document.dispatchEvent(new CustomEvent("wallet:disconnected"));
+}
+
+async function connectWallet() {
+  if (walletConnecting) return walletAddress;
+  if (!isAvailableAdena()) {
+    if (walletPillEls) walletPillEls.balance.textContent = "Adena not detected — install it from adena.app";
+    return null;
+  }
+  walletConnecting = true;
+  renderPillState("connecting");
+  try {
+    applyConnectedUI(await establishAdenaConnection());
+    return walletAddress;
+  } catch (err) {
+    renderPillState("idle");
+    if (walletPillEls) walletPillEls.balance.textContent = "Connect failed: " + err.message;
+    try { localStorage.removeItem(WALLET_CONNECTED_KEY); } catch { /* ignore */ }
+    return null;
+  } finally {
+    walletConnecting = false;
+  }
+}
+
+async function autoReconnectWallet() {
+  let wasConnected = false;
+  try { wasConnected = localStorage.getItem(WALLET_CONNECTED_KEY) === "1"; } catch { /* ignore */ }
+  if (!wasConnected) return;
+  if (!(await waitForAdena())) return;
+
+  walletConnecting = true;
+  renderPillState("connecting");
+  try {
+    applyConnectedUI(await establishAdenaConnection());
+  } catch {
+    // Silent — this attempt was automatic, not a click, so a scary error
+    // would be confusing. Falls back to a normal idle button.
+    renderPillState("idle");
+    try { localStorage.removeItem(WALLET_CONNECTED_KEY); } catch { /* ignore */ }
+  } finally {
+    walletConnecting = false;
+  }
+}
+
+async function ensureConnected() {
+  if (walletAddress) return walletAddress;
+  return connectWallet();
+}
+
+// Signs and broadcasts a single /vm.m_call message via Adena's DoContract.
+// Returns { ok, message? } — never throws, so callers can render a status
+// line without their own try/catch boilerplate.
+async function signAndBroadcast(pkgPath, func, args, sendCoins) {
+  const addr = await ensureConnected();
+  if (!addr) return { ok: false, message: "Wallet not connected." };
+  try {
+    const res = await window.adena.DoContract({
+      messages: [{
+        type: "/vm.m_call",
+        value: { caller: addr, send: sendCoins || "", pkg_path: pkgPath, func, args },
+      }],
+    });
+    if (res?.status !== "success") throw new Error(res?.message || `${func} was not approved or failed.`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: `${func} failed: ` + (err?.message || err) };
+  }
+}
+
+// Injects the pill markup into `container` and wires it up. Call once per
+// page, after shared.js has loaded.
+function initWalletPill(container) {
+  container.innerHTML = `
+    <span class="wallet-pill" id="walletPill">
+      <span class="wallet-info">
+        <span class="wallet-addr mono" id="walletAddrText"></span>
+        <span class="wallet-balance" id="walletBalanceText"></span>
+      </span>
+      <button id="walletConnectBtn" class="secondary">Connect Adena</button>
+    </span>`;
+  walletPillEls = {
+    root: container.querySelector("#walletPill"),
+    btn: container.querySelector("#walletConnectBtn"),
+    addr: container.querySelector("#walletAddrText"),
+    balance: container.querySelector("#walletBalanceText"),
+  };
+  walletPillEls.btn.addEventListener("click", () => {
+    if (walletPillEls.root.classList.contains("connected")) disconnectWallet();
+    else connectWallet();
+  });
+  renderPillState("idle");
+
+  if (location.protocol === "file:") {
+    walletPillEls.balance.textContent = "Serve over http(s) for Adena to work.";
+  }
+  autoReconnectWallet();
+}
