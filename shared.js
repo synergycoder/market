@@ -219,6 +219,18 @@ function parseGnoLine(line) {
   if (str) return JSON.parse('"' + str[1] + '"');
   const num = /^\((-?\d+)/.exec(line);
   if (num) return Number(num[1]);
+  // Confirmed live against a real deployed realm (2026-08-14): a bool
+  // return renders as `(true bool)` / `(false bool)`. This was missing
+  // entirely — silently root-caused a real bug: every IsApprovedForAll
+  // read in the app parsed to `undefined` (filtered out by parseGnoLines
+  // below, since neither pattern above matches "true"/"false") and every
+  // `!!approved` check downstream read as false no matter what the chain
+  // actually said, with no error anywhere in the chain of calls to reveal
+  // it. `false` must be returned here, not fall through to null below —
+  // `parseGnoLines`' filter drops null (meaning "not a value"), not
+  // falsy, so a real `false` has to survive as `false`.
+  if (/^\(true\b/.test(line)) return true;
+  if (/^\(false\b/.test(line)) return false;
   return null;
 }
 function parseGnoLines(raw) {

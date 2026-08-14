@@ -92,6 +92,11 @@ function parseGnoLine(line) {
   if (str) return JSON.parse('"' + str[1] + '"');
   const num = /^\((-?\d+)/.exec(line);
   if (num) return Number(num[1]);
+  // See shared.js's parseGnoLine for the real bug this fixed — kept in
+  // sync here even though nothing in this script currently reads a bool,
+  // since this is a copy-pasted duplicate of that same helper.
+  if (/^\(true\b/.test(line)) return true;
+  if (/^\(false\b/.test(line)) return false;
   return null;
 }
 function parseGnoLines(raw) {
