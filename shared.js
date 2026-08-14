@@ -205,6 +205,25 @@ function parseGnoLines(raw) {
   return raw.split("\n").map(parseGnoLine).filter((v) => v !== null);
 }
 
+// Every active listing in one shot — GetListingsPage(0, 100) renders as a
+// single string, one "collectionID|tokenId|seller|price" line per listing.
+// Fetching this once and filtering in JS (rather than one call per token)
+// matters most on my-nfts.html, which needs listing status for every owned
+// token, not just one.
+async function fetchAllListings() {
+  if (!net().marketplaceDeployed) return [];
+  const raw = parseGnoLines(await qevalOn(net().marketPkgPath, "GetListingsPage(0, 100)"))[0] || "";
+  return raw.split("\n").filter(Boolean).map((line) => {
+    const [collectionID, tokenId, seller, price] = line.split("|");
+    return { collectionID, tokenId, seller, price: Number(price) };
+  });
+}
+
+async function fetchListingFor(collectionID, tokenId) {
+  const listings = await fetchAllListings();
+  return listings.find((l) => l.collectionID === collectionID && l.tokenId === tokenId) || null;
+}
+
 // ---------------- generic helpers ----------------
 
 async function mapLimit(items, limit, fn) {

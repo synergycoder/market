@@ -188,6 +188,11 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
 .trait b { color: var(--text); font-weight: 600; }
 .card .price { font-weight: 700; }
 .card .actions { margin-top: 0.4rem; display: flex; gap: 0.4rem; }
+.card .card-actions { padding: 0 0.8rem 0.8rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.card .card-actions .row-inline { display: flex; gap: 0.4rem; }
+.card .card-actions input[type="number"] { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; }
+.card .card-actions button { white-space: nowrap; }
+.card .card-actions .trade-status { margin: 0; min-height: 1.1em; }
 .status { font-size: 0.85rem; color: var(--muted); min-height: 1.2em; }
 .status.error { color: var(--danger); }
 .status.ok { color: var(--good); }

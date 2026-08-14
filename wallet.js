@@ -188,6 +188,43 @@ async function signAndBroadcast(pkgPath, func, args, sendCoins) {
   }
 }
 
+// A natively-registered collection (its own deployer called
+// RegisterCollection) approves the marketplace's own address, directly on
+// its own path — collectionID and the approval target are the same thing.
+// A satellite-adapter collection (registered by us, without that
+// deployer's involvement — see gno.land/r/gnomarket/satellites and its own
+// README) can't work that way: collectionID is unavoidably the adapter's
+// own path, not the real collection's, so the real collection has no idea
+// what "the marketplace" even is — a seller has to approve the ADAPTER's
+// address, on the REAL collection's path. An adapter exposes exactly two
+// extra functions, ApprovalTarget()/ApprovalOperator(), to say where and
+// who; their absence (a plain qeval error) means this is a native
+// registration, so fall back to the direct case.
+async function resolveApprovalTarget(collectionID, marketAddr) {
+  try {
+    const [target] = parseGnoLines(await qevalOn(collectionID, "ApprovalTarget()"));
+    const [operator] = parseGnoLines(await qevalOn(collectionID, "ApprovalOperator()"));
+    if (target && operator) return { target, operator };
+  } catch { /* no such functions — this is a natively-registered collection */ }
+  return { target: collectionID, operator: marketAddr };
+}
+
+// Approves the marketplace (or satellite adapter) for the whole collection,
+// then creates the listing — two transactions. onStatus, if given, is
+// called with a progress message before each Adena prompt.
+async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus) {
+  const { target, operator } = await resolveApprovalTarget(collectionID, marketAddr);
+  onStatus?.("Approving marketplace… (1/2, check Adena)");
+  const approveRes = await signAndBroadcast(target, "SetApprovalForAll", [operator, "true"], "");
+  if (!approveRes.ok) return approveRes;
+  onStatus?.("Creating listing… (2/2, check Adena)");
+  return signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
+}
+
+async function cancelListing(collectionID, tokenId) {
+  return signAndBroadcast(net().marketPkgPath, "Cancel", [collectionID, tokenId], "");
+}
+
 // Injects the pill markup into `container` and wires it up. Call once per
 // page, after shared.js has loaded.
 function initWalletPill(container) {

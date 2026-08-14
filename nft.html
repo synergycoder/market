@@ -88,16 +88,6 @@ let state = null; // { info, display, owner, listing, marketAddr, feeMode, feeVa
 
 async function qevalMarket(expr) { return qevalOn(net().marketPkgPath, expr); }
 
-async function fetchListingFor(collectionID, tokenId) {
-  if (!net().marketplaceDeployed) return null;
-  const raw = parseGnoLines(await qevalMarket("GetListingsPage(0, 100)"))[0] || "";
-  for (const line of raw.split("\n").filter(Boolean)) {
-    const [cid, tid, seller, price] = line.split("|");
-    if (cid === collectionID && tid === tokenId) return { seller, price: Number(price) };
-  }
-  return null;
-}
-
 async function load() {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
   document.getElementById("detail").style.display = "none";
@@ -219,30 +209,9 @@ async function doBuy() {
 
 async function doCancel() {
   setTradeStatus("Waiting for approval in Adena…");
-  const res = await signAndBroadcast(net().marketPkgPath, "Cancel", [collectionID, tokenId], "");
+  const res = await cancelListing(collectionID, tokenId);
   if (res.ok) { setTradeStatus("Listing cancelled.", "status ok"); setTimeout(load, 1500); }
   else setTradeStatus(res.message, "status error");
-}
-
-// A natively-registered collection (its own deployer called
-// RegisterCollection) approves the marketplace's own address, directly on
-// its own path — collectionID and the approval target are the same thing.
-// A satellite-adapter collection (registered by us, without that
-// deployer's involvement — see scripts/gemsg7adapter and its own doc
-// comment) can't work that way: collectionID is unavoidably the adapter's
-// own path, not the real collection's, so the real collection has no idea
-// what "the marketplace" even is — a seller has to approve the ADAPTER's
-// address, on the REAL collection's path. An adapter exposes exactly two
-// extra functions, ApprovalTarget()/ApprovalOperator(), to say where and
-// who; their absence (a plain qeval error) means this is a native
-// registration, so fall back to the direct case.
-async function resolveApprovalTarget() {
-  try {
-    const [target] = parseGnoLines(await qevalOn(collectionID, "ApprovalTarget()"));
-    const [operator] = parseGnoLines(await qevalOn(collectionID, "ApprovalOperator()"));
-    if (target && operator) return { target, operator };
-  } catch { /* no such functions — this is a natively-registered collection */ }
-  return { target: collectionID, operator: state.marketAddr };
 }
 
 async function doList() {
@@ -250,14 +219,7 @@ async function doList() {
   if (!(priceGnot > 0)) { setTradeStatus("Enter a positive price first.", "status error"); return; }
   if (!state.marketAddr) { setTradeStatus("Marketplace address not loaded yet.", "status error"); return; }
   const priceUgnot = Math.round(priceGnot * 1_000_000);
-  const { target, operator } = await resolveApprovalTarget();
-
-  setTradeStatus("Approving marketplace… (1/2, check Adena)");
-  let res = await signAndBroadcast(target, "SetApprovalForAll", [operator, "true"], "");
-  if (!res.ok) { setTradeStatus(res.message, "status error"); return; }
-
-  setTradeStatus("Creating listing… (2/2, check Adena)");
-  res = await signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
+  const res = await listToken(collectionID, tokenId, priceUgnot, state.marketAddr, (msg) => setTradeStatus(msg));
   if (res.ok) { setTradeStatus("Listed.", "status ok"); setTimeout(load, 1500); }
   else setTradeStatus(res.message, "status error");
 }

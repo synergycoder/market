@@ -87,7 +87,36 @@ function applyNetwork() {
 
 function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
 
-function myTokenCardHtml(collectionPath, collectionName, t) {
+let marketAddr = null; // MarketAddress() of the current network's marketplace, loaded once per applyNetwork()
+
+// Renders the price input + "List NFT" button (unlisted) or price + "Cancel
+// listing" button (listed) block for one card. Kept separate from
+// myTokenCardHtml so a card's actions can be swapped out in place after a
+// list/cancel succeeds, without re-fetching or re-rendering the whole card.
+function cardActionsHtml(listing) {
+  if (!net().marketplaceDeployed) return "";
+  if (listing) {
+    const canCancel = walletAddress && listing.seller === walletAddress;
+    return `
+      <div class="card-actions">
+        <div class="price">${ugnotToGnot(listing.price)} GNOT</div>
+        ${canCancel
+          ? `<button type="button" class="secondary cancel-btn">Cancel listing</button>`
+          : `<div class="meta">Listed by ${escapeHtml(truncAddr(listing.seller))}</div>`}
+        <p class="status trade-status"></p>
+      </div>`;
+  }
+  return `
+    <div class="card-actions">
+      <div class="row-inline">
+        <input type="number" class="list-price" min="0" step="0.000001" placeholder="Price (GNOT)" />
+        <button type="button" class="list-btn">List NFT</button>
+      </div>
+      <p class="status trade-status"></p>
+    </div>`;
+}
+
+function myTokenCardHtml(collectionPath, collectionName, t, listing) {
   const tokenName = t.display?.name || `Token ${t.tokenId}`;
   const imgHtml = t.display?.image
     ? `<img src="${escapeHtml(t.display.image)}" alt="${escapeHtml(tokenName)}" />`
@@ -99,10 +128,11 @@ function myTokenCardHtml(collectionPath, collectionName, t) {
   // through a satellite adapter's collectionID when one fronts this real
   // path (see SATELLITE_ADAPTERS in shared.js), or "List" on the item page
   // would look invisible.
-  const href = `nft.html?collection=${encodeURIComponent(marketplaceCollectionId(collectionPath))}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
+  const mcid = marketplaceCollectionId(collectionPath);
+  const href = `nft.html?collection=${encodeURIComponent(mcid)}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
   return `
-    <a class="card-link" href="${href}">
-      <div class="card" data-key="${escapeAttr(collectionPath)}::${escapeAttr(t.tokenId)}">
+    <div class="card" data-key="${escapeAttr(collectionPath)}::${escapeAttr(t.tokenId)}" data-collection-id="${escapeAttr(mcid)}" data-token-id="${escapeAttr(t.tokenId)}">
+      <a class="card-link" href="${href}">
         ${imgHtml}
         <div class="body">
           <div class="name">${escapeHtml(tokenName)}${swatch}</div>
@@ -110,8 +140,65 @@ function myTokenCardHtml(collectionPath, collectionName, t) {
           ${attributesHtml(t.display?.attributes)}
           <div class="meta">#${escapeHtml(t.tokenId)}</div>
         </div>
-      </div>
-    </a>`;
+      </a>
+      ${cardActionsHtml(listing)}
+    </div>`;
+}
+
+// Re-checks this one card's listing status and swaps its actions block in
+// place — used after a list/cancel succeeds, so the rest of the grid (and
+// any scan still in progress) is left untouched.
+async function refreshCardListing(card) {
+  const collectionID = card.dataset.collectionId;
+  const tokenId = card.dataset.tokenId;
+  let listing = null;
+  try { listing = await fetchListingFor(collectionID, tokenId); } catch { /* leave as unlisted on error */ }
+  const old = card.querySelector(".card-actions");
+  const html = cardActionsHtml(listing);
+  if (old) old.outerHTML = html;
+  else if (html) card.insertAdjacentHTML("beforeend", html);
+  delete card.dataset.wired;
+  wireCardActions();
+}
+
+// Wires the List/Cancel buttons on any not-yet-wired card currently in the
+// grid — safe to call repeatedly as new cards stream in during a scan.
+function wireCardActions() {
+  document.querySelectorAll("#grid .card:not([data-wired])").forEach((card) => {
+    card.dataset.wired = "1";
+    const collectionID = card.dataset.collectionId;
+    const tokenId = card.dataset.tokenId;
+    const setStatus = (msg, cls = "status") => {
+      const el = card.querySelector(".trade-status");
+      if (el) { el.textContent = msg; el.className = cls + " trade-status"; }
+    };
+
+    const listBtn = card.querySelector(".list-btn");
+    if (listBtn) {
+      listBtn.addEventListener("click", async () => {
+        const priceInput = card.querySelector(".list-price");
+        const priceGnot = parseFloat(priceInput?.value);
+        if (!(priceGnot > 0)) { setStatus("Enter a positive price first.", "status error"); return; }
+        if (!marketAddr) { setStatus("Marketplace address not loaded yet.", "status error"); return; }
+        listBtn.disabled = true;
+        const priceUgnot = Math.round(priceGnot * 1_000_000);
+        const res = await listToken(collectionID, tokenId, priceUgnot, marketAddr, (msg) => setStatus(msg));
+        if (res.ok) { setStatus("Listed.", "status ok"); setTimeout(() => refreshCardListing(card), 1200); }
+        else { setStatus(res.message, "status error"); listBtn.disabled = false; }
+      });
+    }
+
+    const cancelBtn = card.querySelector(".cancel-btn");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", async () => {
+        cancelBtn.disabled = true;
+        setStatus("Waiting for approval in Adena…");
+        const res = await cancelListing(collectionID, tokenId);
+        if (res.ok) { setStatus("Listing cancelled.", "status ok"); setTimeout(() => refreshCardListing(card), 1200); }
+        else { setStatus(res.message, "status error"); cancelBtn.disabled = false; }
+      });
+    }
+  });
 }
 
 async function loadMyNfts() {
@@ -131,6 +218,19 @@ async function loadMyNfts() {
     statusEl.textContent = "Couldn't check your holdings: " + err.message;
     statusEl.className = "status error";
     return;
+  }
+  if (myGeneration !== scanGeneration) return;
+
+  // Loaded once up front (not per-token) so every card can render its
+  // List/Cancel controls without an extra round-trip each.
+  marketAddr = null;
+  let listingsByKey = new Map();
+  if (net().marketplaceDeployed) {
+    try { [marketAddr] = parseGnoLines(await qevalOn(net().marketPkgPath, "MarketAddress()")); } catch { /* controls stay disabled below */ }
+    try {
+      const listings = await fetchAllListings();
+      listingsByKey = new Map(listings.map((l) => [`${l.collectionID}::${l.tokenId}`, l]));
+    } catch { /* listing-status lookups just come back empty — not fatal */ }
   }
   if (myGeneration !== scanGeneration) return;
 
@@ -164,7 +264,9 @@ async function loadMyNfts() {
       const display = await fetchTokenDisplayInfo(c.path, t.tokenId, t.tokenURI);
       if (myGeneration !== scanGeneration) return;
       found++;
-      grid.insertAdjacentHTML("beforeend", myTokenCardHtml(c.path, c.name || c.path, { ...t, display }));
+      const listing = listingsByKey.get(`${marketplaceCollectionId(c.path)}::${t.tokenId}`) || null;
+      grid.insertAdjacentHTML("beforeend", myTokenCardHtml(c.path, c.name || c.path, { ...t, display }, listing));
+      wireCardActions();
       updateStatus();
     });
   });
