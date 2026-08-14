@@ -61,12 +61,22 @@ const CONFIG = {
 
 const NETWORK_STORAGE_KEY = "gnomarket:selectedNetwork";
 
+// Local's RPC (http://127.0.0.1:26657) only exists on the machine actually
+// running gnodev — defaulting every visitor to it (including the owner
+// loading the real deployed site) produces a silent "Failed to fetch" the
+// moment any read fires, with no obvious cause. Default to local only when
+// the page itself is being served from localhost (a dev session); any real
+// domain (gno.market, a preview URL, etc.) defaults to testnet instead.
+function defaultNetworkKey() {
+  return (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? "local" : "testnet";
+}
+
 function loadSavedNetworkKey() {
   try {
     const saved = localStorage.getItem(NETWORK_STORAGE_KEY);
     if (saved && NETWORKS[saved]) return saved;
-  } catch { /* storage unavailable — default to local */ }
-  return "local";
+  } catch { /* storage unavailable — fall through to hostname-based default */ }
+  return defaultNetworkKey();
 }
 
 let currentNetKey = loadSavedNetworkKey();
