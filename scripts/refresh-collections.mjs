@@ -44,6 +44,14 @@ const SATELLITE_ADAPTER_PATHS = new Set([
   "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3",
 ]);
 
+// Deployed to sapphire-1 purely to end-to-end-test the real approve/list
+// flow via gnokey (bypassing Adena's async broadcast timing, to isolate a
+// frontend bug from a contract one) — not a real user-facing collection,
+// so it's excluded here the same way a dead adapter path is.
+const TEST_FIXTURE_PATHS = new Set([
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/testcollectionv2",
+]);
+
 const MAX_REALMS_TO_SCAN = 200;
 const MAX_SEQUENTIAL_PROBE = 60;
 const CONSECUTIVE_MISS_LIMIT = 5;
@@ -134,7 +142,7 @@ async function scanRealmPaths(rpcUrl) {
       const standard = detectStandard(bodies);
       // See SATELLITE_ADAPTER_PATHS's own comment — an adapter forwards to
       // a real collection and would otherwise show up as a duplicate.
-      if (standard && !SATELLITE_ADAPTER_PATHS.has(p)) found.push({ path: p, standard });
+      if (standard && !SATELLITE_ADAPTER_PATHS.has(p) && !TEST_FIXTURE_PATHS.has(p)) found.push({ path: p, standard });
     } catch {
       // unreadable package — skip
     }
