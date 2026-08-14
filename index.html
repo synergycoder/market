@@ -185,6 +185,26 @@ async function fetchTokenInfo(collectionID, tokenId) {
   return { name, tokenURI, owner };
 }
 
+// scripts/refresh-listings.mjs pre-computes staleness (owner changed, or
+// marketplace approval revoked) every 30 min server-side, so the
+// approval-revoked case — the one live TokenInfo alone can't see — doesn't
+// need its own extra RPC call per listing per visitor. A listing this cache
+// doesn't know about yet (created since the last cron run) is treated as
+// fresh, never as stale — the cache only ever narrows what's shown, it
+// never has to be complete to be safe.
+let staleFromCache = new Map(); // "collectionID::tokenId" -> true
+async function loadStaleCache() {
+  staleFromCache = new Map();
+  try {
+    const res = await fetch(`data/listings-${net().chainId}.json`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const l of data.listings || []) {
+      if (l.stale) staleFromCache.set(`${l.collectionID}::${l.tokenId}`, true);
+    }
+  } catch { /* cache missing/unreadable — nothing gets hidden on its account */ }
+}
+
 async function loadFee() {
   const el = document.getElementById("feeLabel");
   if (!net().marketplaceDeployed) { el.textContent = ""; return; }
@@ -212,7 +232,7 @@ async function loadListings() {
   statusEl.textContent = "Loading…";
   statusEl.className = "status";
   try {
-    const listings = await fetchListings();
+    const [listings] = await Promise.all([fetchListings(), loadStaleCache()]);
     // Preserve insertion order (oldest first, as returned) as a proxy for
     // listing date — the realm exposes no separate "get CreatedAt" reader.
     listings.forEach((l, i) => { l.order = i; });
@@ -222,16 +242,26 @@ async function loadListings() {
       statusEl.textContent = "No active listings.";
       return;
     }
-    allListings = await mapLimit(listings, 6, async (l) => {
+    const enriched = await mapLimit(listings, 6, async (l) => {
       try {
         const info = await fetchTokenInfo(l.collectionID, l.tokenId);
         const display = await fetchTokenDisplayInfo(l.collectionID, l.tokenId, info.tokenURI);
-        return { ...l, info, display };
+        // Free (info.owner is already fetched above) live check for the
+        // most common staleness cause — sold or transferred elsewhere.
+        // The rarer "approval revoked without a transfer" case relies on
+        // the cron-computed cache instead — see loadStaleCache().
+        const stale = (info.owner && info.owner !== l.seller) || staleFromCache.has(`${l.collectionID}::${l.tokenId}`);
+        return { ...l, info, display, stale };
       } catch (err) {
-        return { ...l, info: null, display: null, infoError: err.message };
+        return { ...l, info: null, display: null, infoError: err.message, stale: false };
       }
     });
-    statusEl.textContent = `${listings.length} active listing${listings.length === 1 ? "" : "s"}.`;
+    const staleCount = enriched.filter((l) => l.stale).length;
+    allListings = enriched.filter((l) => !l.stale);
+    statusEl.textContent = allListings.length === 0
+      ? "No active listings."
+      : `${allListings.length} active listing${allListings.length === 1 ? "" : "s"}.`
+        + (staleCount ? ` (${staleCount} hidden — no longer held or approved by the seller)` : "");
     populateCollectionFilter();
     renderListings();
   } catch (err) {

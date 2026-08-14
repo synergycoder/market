@@ -1,9 +1,10 @@
-name: Refresh collections cache
+name: Refresh cached chain data
 
-# Runs the chain scan server-side on a schedule instead of every visitor's
-# browser doing it live — see scripts/refresh-collections.mjs. Committing
-# the result to data/ also means GitHub Pages redeploys automatically on
-# every refresh (a normal push to main), no separate publish step needed.
+# Runs the chain scans server-side on a schedule instead of every visitor's
+# browser doing it live — see scripts/refresh-collections.mjs and
+# scripts/refresh-listings.mjs. Committing the result to data/ also means
+# GitHub Pages redeploys automatically on every refresh (a normal push to
+# main), no separate publish step needed.
 on:
   schedule:
     - cron: "*/30 * * * *"
@@ -27,6 +28,7 @@ jobs:
           node-version: 20
 
       - run: node scripts/refresh-collections.mjs
+      - run: node scripts/refresh-listings.mjs
 
       - name: Commit updated cache if changed
         run: |
@@ -37,5 +39,5 @@ jobs:
             echo "No changes to commit."
             exit 0
           fi
-          git commit -m "Refresh collections cache [skip ci]"
+          git commit -m "Refresh cached chain data [skip ci]"
           git push

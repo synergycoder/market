@@ -190,9 +190,16 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
 .card .actions { margin-top: 0.4rem; display: flex; gap: 0.4rem; }
 .card .card-actions { padding: 0 0.8rem 0.8rem; display: flex; flex-direction: column; gap: 0.4rem; }
 .card .card-actions .row-inline { display: flex; gap: 0.4rem; }
-.card .card-actions input[type="number"] { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; }
 .card .card-actions button { white-space: nowrap; }
 .card .card-actions .trade-status { margin: 0; min-height: 1.1em; }
+/* Price input's unit stays visible once typing starts, unlike a
+   placeholder that vanishes the moment there's a value. */
+.amount-input { position: relative; flex: 1; min-width: 0; }
+.amount-input input[type="number"] { width: 100%; padding: 0.35rem 2.6rem 0.35rem 0.5rem; }
+.amount-input .unit {
+  position: absolute; right: 0.55rem; top: 50%; transform: translateY(-50%);
+  font-size: 0.7rem; color: var(--muted); pointer-events: none;
+}
 .status { font-size: 0.85rem; color: var(--muted); min-height: 1.2em; }
 .status.error { color: var(--danger); }
 .status.ok { color: var(--good); }

@@ -75,14 +75,14 @@ document.addEventListener("wallet:disconnected", () => { if (unlocked) applyNetw
 function applyNetwork() {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
   scanGeneration++; // invalidate any scan still running against the previous network/wallet
-  document.getElementById("grid").innerHTML = "";
   document.getElementById("scanStatus").textContent = "";
   if (!walletAddress) {
+    document.getElementById("grid").innerHTML = "";
     document.getElementById("connectPrompt").style.display = "block";
     return;
   }
   document.getElementById("connectPrompt").style.display = "none";
-  loadMyNfts();
+  loadMyNfts(); // decides for itself whether to show a cached grid instantly or a cold-scan spinner — see its own comment
 }
 
 function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
@@ -109,7 +109,10 @@ function cardActionsHtml(listing) {
   return `
     <div class="card-actions">
       <div class="row-inline">
-        <input type="number" class="list-price" min="0" step="0.000001" placeholder="Price (GNOT)" />
+        <div class="amount-input">
+          <input type="number" class="list-price" min="0" step="0.000001" placeholder="0.0" />
+          <span class="unit">GNOT</span>
+        </div>
         <button type="button" class="list-btn">List NFT</button>
       </div>
       <p class="status trade-status"></p>
@@ -201,12 +204,59 @@ function wireCardActions() {
   });
 }
 
+// A full wallet scan means one BalanceOf per known collection plus token
+// enumeration for every collection that comes back positive — genuinely
+// slow (this is exactly the per-visitor RPC cost flagged as a rate-limit
+// risk elsewhere in this app), and redoing it from zero on every page
+// load/refresh was the complaint. Caching the last result per (network,
+// wallet) in localStorage means a reload shows something instantly; the
+// real scan still runs every time to catch changes, just in the
+// background, and only replaces what's on screen once it's done.
+const MY_NFTS_CACHE_PREFIX = "gnomarket:myNfts:";
+function myNftsCacheKey() { return `${MY_NFTS_CACHE_PREFIX}${net().chainId}:${walletAddress}`; }
+
+function loadMyNftsCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(myNftsCacheKey()));
+    return Array.isArray(parsed?.entries) ? parsed : null;
+  } catch { return null; }
+}
+function saveMyNftsCache(entries) {
+  try { localStorage.setItem(myNftsCacheKey(), JSON.stringify({ savedAt: Date.now(), entries })); }
+  catch { /* storage full, disabled, or private mode — just skip caching */ }
+}
+function relTime(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hrs = Math.round(mins / 60);
+  return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+}
+
+function renderEntry(e) { return myTokenCardHtml(e.collectionPath, e.collectionName, e.token, e.listing); }
+function renderEntries(entries) {
+  document.getElementById("grid").innerHTML = entries.map(renderEntry).join("");
+  wireCardActions();
+}
+
 async function loadMyNfts() {
   const myGeneration = scanGeneration;
   const me = walletAddress;
   const statusEl = document.getElementById("scanStatus");
   const grid = document.getElementById("grid");
-  statusEl.textContent = "Loading known collections…";
+
+  const cached = loadMyNftsCache();
+  const hasCache = !!cached?.entries.length;
+  if (hasCache) {
+    renderEntries(cached.entries);
+  } else {
+    grid.innerHTML = "";
+  }
+  const setScanStatus = (msg, cls = "status") => { statusEl.innerHTML = msg; statusEl.className = cls; };
+  setScanStatus(hasCache
+    ? `<span class="spinner"></span>Showing ${cached.entries.length} cached token${cached.entries.length === 1 ? "" : "s"} from ${relTime(cached.savedAt)} — refreshing…`
+    : `<span class="spinner"></span>Scanning your wallet — this can take a few seconds…`);
+
   let collections;
   try {
     const res = await fetch(`data/collections-${net().chainId}.json`, { cache: "no-store" });
@@ -215,8 +265,9 @@ async function loadMyNfts() {
     collections = data.collections.filter((c) => c.standard === "GRC721"); // GRC1155 balances aren't enumerated per-token here yet
   } catch (err) {
     if (myGeneration !== scanGeneration) return;
-    statusEl.textContent = "Couldn't check your holdings: " + err.message;
-    statusEl.className = "status error";
+    setScanStatus(hasCache
+      ? `Showing ${cached.entries.length} cached token${cached.entries.length === 1 ? "" : "s"} from ${relTime(cached.savedAt)} — refresh failed: ${err.message}`
+      : "Couldn't check your holdings: " + err.message, "status error");
     return;
   }
   if (myGeneration !== scanGeneration) return;
@@ -234,10 +285,12 @@ async function loadMyNfts() {
   }
   if (myGeneration !== scanGeneration) return;
 
+  const freshEntries = [];
   let checked = 0, found = 0;
   const updateStatus = () => {
     if (myGeneration !== scanGeneration) return;
-    statusEl.textContent = `Checked ${checked}/${collections.length} collection${collections.length === 1 ? "" : "s"} · found ${found} token${found === 1 ? "" : "s"}…`;
+    const progress = `checked ${checked}/${collections.length} collection${collections.length === 1 ? "" : "s"}${found ? ` · ${found} found so far` : ""}`;
+    setScanStatus(`<span class="spinner"></span>${hasCache ? "Refreshing" : "Scanning"} — ${progress}…`);
   };
   updateStatus();
 
@@ -265,16 +318,29 @@ async function loadMyNfts() {
       if (myGeneration !== scanGeneration) return;
       found++;
       const listing = listingsByKey.get(`${marketplaceCollectionId(c.path)}::${t.tokenId}`) || null;
-      grid.insertAdjacentHTML("beforeend", myTokenCardHtml(c.path, c.name || c.path, { ...t, display }, listing));
-      wireCardActions();
+      const entry = { collectionPath: c.path, collectionName: c.name || c.path, token: { ...t, display }, listing };
+      freshEntries.push(entry);
+      if (!hasCache) {
+        // Cold start (nothing cached yet worth preserving on screen) —
+        // reveal cards as they're found instead of waiting for the whole
+        // scan to finish.
+        grid.insertAdjacentHTML("beforeend", renderEntry(entry));
+        wireCardActions();
+      }
       updateStatus();
     });
   });
   if (myGeneration !== scanGeneration) return;
 
-  statusEl.textContent = found === 0
+  // Always finish with an authoritative full re-render from the fresh scan
+  // — this is what catches a token sold/transferred away since the cache
+  // was written, not just newly-found ones.
+  renderEntries(freshEntries);
+  saveMyNftsCache(freshEntries);
+
+  setScanStatus(found === 0
     ? `You don't hold any tokens in the ${collections.length} collection${collections.length === 1 ? "" : "s"} gnomarket currently knows about.`
-    : `${found} token${found === 1 ? "" : "s"} across ${collections.length} collection${collections.length === 1 ? "" : "s"} checked.`;
+    : `${found} token${found === 1 ? "" : "s"} across ${collections.length} collection${collections.length === 1 ? "" : "s"} checked.`);
 }
 </script>
 </body>
