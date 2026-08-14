@@ -216,3 +216,21 @@ function initWalletPill(container) {
   }
   autoReconnectWallet();
 }
+
+// ---------------- private-preview gate ----------------
+// While gnomarket is only meant to be visible to its own owner (see
+// CONFIG.ownerAddress), every page that shows real app content calls this
+// once, after initWalletPill(). onChange(unlocked) fires immediately with
+// the current state (false, unless a stored connection silently
+// auto-reconnects to the owner's address before this runs — see below) and
+// again on every connect/disconnect.
+function isOwnerConnected() {
+  return !!walletAddress && walletAddress === CONFIG.ownerAddress;
+}
+
+function initGate(onChange) {
+  const apply = () => onChange(isOwnerConnected());
+  document.addEventListener("wallet:connected", apply);
+  document.addEventListener("wallet:disconnected", apply);
+  apply();
+}

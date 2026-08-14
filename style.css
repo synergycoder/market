@@ -246,3 +246,16 @@ table.listings td.name-cell { display: flex; align-items: center; gap: 0.6rem; }
 .breadcrumb { font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem; }
 .breadcrumb a { color: var(--muted); text-decoration: none; }
 .breadcrumb a:hover { color: var(--text); }
+
+/* ---------------- splash (gated home page) ---------------- */
+.splash { max-width: 480px; margin: 4rem auto; text-align: center; }
+.splash-badge {
+  display: inline-block; border: 1px solid var(--border); border-radius: 999px;
+  padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 2rem;
+}
+.splash-mark { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 0.75rem; }
+.splash-tagline { color: var(--muted); font-size: 1.05rem; margin: 0 0 2rem; }
+.splash-links { display: flex; gap: 1.25rem; justify-content: center; font-size: 0.9rem; }
+.splash-links a { color: var(--muted); text-decoration: none; border-bottom: 1px solid transparent; }
+.splash-links a:hover { color: var(--text); border-bottom-color: var(--accent); }

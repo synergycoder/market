@@ -19,10 +19,13 @@ const NETWORKS = {
     marketplaceDeployed: true,
   },
   testnet: {
-    label: "Testnet (topaz-1)",
-    rpcUrl: "https://rpc.topaz.testnets.gno.land",
-    chainId: "topaz-1",
-    gnowebUrl: "https://topaz.testnets.gno.land",
+    // topaz-1 was sunset 2026-08-11; sapphire-1 is its replacement (verified
+    // against gno-nft-minter's own working config and ~/gno-land-dev-notes.md,
+    // both already using it successfully) — see the shared dev-notes file.
+    label: "Testnet (sapphire-1)",
+    rpcUrl: "https://rpc.sapphire.testnets.gno.land",
+    chainId: "sapphire-1",
+    gnowebUrl: "https://sapphire.testnets.gno.land",
     marketplaceDeployed: false,
   },
   betanet: {
@@ -37,6 +40,13 @@ const NETWORKS = {
 const CONFIG = {
   marketPkgPath: "gno.land/r/gnomarket/nftmarket",
   adenaAppName: "gnomarket",
+  // While gnomarket is in private testing, the full app is only shown to
+  // this address — everyone else (and anyone not connected) sees the
+  // splash view instead. See wallet.js's initGate(). Not a security
+  // boundary (the chain itself is public to anyone who queries it
+  // directly) — purely a UI convenience so casual visitors to gno.market
+  // see "coming soon" instead of a half-finished trading UI.
+  ownerAddress: "g18pph34e6e70whfqzk6m4kv6cdtl47nm4vlfl4x",
 };
 
 const NETWORK_STORAGE_KEY = "gnomarket:selectedNetwork";

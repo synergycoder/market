@@ -23,13 +23,19 @@
   </div>
 </header>
 
-<nav class="topnav">
+<nav class="topnav" id="appNav" style="display:none;">
   <a href="index.html">Marketplace</a>
   <a href="collections.html">Collections</a>
   <a href="nfts.html">NFTs</a>
 </nav>
 
 <main>
+
+<div id="lockedView" class="panel status" style="max-width:480px; margin:4rem auto; text-align:center;">
+  This page is in private testing. <a href="index.html">Return home</a> and connect the owner's wallet.
+</div>
+
+<div id="appView" style="display:none;">
   <div class="breadcrumb">
     <a href="index.html">Marketplace</a> &rsaquo;
     <a id="collectionLink" href="#"></a> &rsaquo;
@@ -55,15 +61,17 @@
       </div>
     </div>
   </div>
+</div>
+
 </main>
 
 <script src="shared.js"></script>
 <script src="wallet.js"></script>
 <script>
-initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); load(); });
+initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); if (unlocked) load(); });
 initWalletPill(document.getElementById("walletPillContainer"));
-document.addEventListener("wallet:connected", renderTradePanel);
-document.addEventListener("wallet:disconnected", renderTradePanel);
+document.addEventListener("wallet:connected", () => { if (unlocked) renderTradePanel(); });
+document.addEventListener("wallet:disconnected", () => { if (unlocked) renderTradePanel(); });
 
 const params = new URLSearchParams(location.search);
 const netParam = params.get("network");
@@ -232,7 +240,14 @@ async function doList() {
   else setTradeStatus(res.message, "status error");
 }
 
-load();
+let unlocked = false;
+initGate((isOwner) => {
+  unlocked = isOwner;
+  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
+  document.getElementById("appNav").style.display = isOwner ? "" : "none";
+  document.getElementById("appView").style.display = isOwner ? "" : "none";
+  if (isOwner) load();
+});
 </script>
 </body>
 </html>

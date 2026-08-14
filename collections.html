@@ -19,7 +19,7 @@
   </div>
 </header>
 
-<nav class="topnav">
+<nav class="topnav" id="appNav" style="display:none;">
   <a href="index.html">Marketplace</a>
   <a href="collections.html" class="active">Collections</a>
   <a href="nfts.html">NFTs</a>
@@ -27,6 +27,11 @@
 
 <main>
 
+<div id="lockedView" class="panel status" style="max-width:480px; margin:4rem auto; text-align:center;">
+  This page is in private testing. <a href="index.html">Return home</a> and connect the owner's wallet.
+</div>
+
+<div id="appView" style="display:none;">
   <section>
     <h2>Collections</h2>
     <div class="panel">
@@ -43,14 +48,24 @@
       <div id="results"></div>
     </div>
   </section>
+</div>
 
 </main>
 
 <script src="shared.js"></script>
 <script src="wallet.js"></script>
 <script>
-initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
+initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
 initWalletPill(document.getElementById("walletPillContainer"));
+
+let unlocked = false;
+initGate((isOwner) => {
+  unlocked = isOwner;
+  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
+  document.getElementById("appNav").style.display = isOwner ? "" : "none";
+  document.getElementById("appView").style.display = isOwner ? "" : "none";
+  if (isOwner) applyNetwork();
+});
 
 let scanGeneration = 0;
 
@@ -131,8 +146,6 @@ async function runScan() {
 }
 
 document.getElementById("scanBtn").addEventListener("click", runScan);
-
-applyNetwork();
 </script>
 </body>
 </html>

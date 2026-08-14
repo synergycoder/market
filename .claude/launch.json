@@ -4,7 +4,7 @@
     {
       "name": "gnomarket-web",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5173", "--directory", "/Users/elypina/gno-nft-marketplace/web"],
+      "runtimeArgs": ["-m", "http.server", "5173", "--directory", "/Users/elypina/gno-nft-marketplace"],
       "port": 5173
     }
   ]
