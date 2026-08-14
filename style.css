@@ -36,22 +36,37 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
+  gap: 1.5rem;
+  padding: 0.85rem 1.5rem;
   flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
 }
-header h1 { font-size: 1.15rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; }
-header h1 .logo-mark { width: 1.3em; height: 1.3em; flex: none; }
-header .sub { color: var(--muted); font-size: 0.85rem; }
+header h1 { font-size: 1.15rem; margin: 0; display: flex; align-items: center; gap: 0.6rem; flex: none; }
+header h1 .logo-mark {
+  width: 2.4em;
+  height: 2.4em;
+  flex: none;
+  transition: transform 0.25s ease;
+}
+header h1 .logo-mark:hover { transform: scale(1.15) rotate(-8deg); }
+@media (prefers-reduced-motion: reduce) {
+  header h1 .logo-mark { transition: none; }
+  header h1 .logo-mark:hover { transform: none; }
+}
+/* nav now lives inline in the header row itself (between the wordmark and
+   the network/wallet controls) rather than as its own full-width bordered
+   strip underneath — the border above moved onto header to keep a single
+   dividing line instead of two. */
 nav.topnav {
   display: flex;
   gap: 0.25rem;
-  padding: 0 1.5rem;
-  border-bottom: 1px solid var(--border);
+  flex: 1;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 nav.topnav a {
   display: inline-block;
-  padding: 0.6rem 0.9rem;
+  padding: 0.5rem 0.9rem;
   color: var(--muted);
   text-decoration: none;
   font-size: 0.85rem;

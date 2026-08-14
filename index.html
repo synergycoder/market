@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>gnomarket — NFT marketplace</title>
+<title>Gno.Market — NFT marketplace</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
 <!-- GnoConnect standard (docs.gno.land/resources/gnoconnect): tells a
@@ -24,21 +24,18 @@
 <body>
 
 <header>
-  <div>
-    <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket</h1>
-    <div class="sub">non-custodial NFT marketplace &middot; <span id="chainLabel"></span></div>
-  </div>
+  <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket<span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav" style="display:none;">
+    <a href="index.html" class="active">Marketplace</a>
+    <a href="collections.html">Collections</a>
+    <a href="nfts.html">NFTs</a>
+    <a href="my-nfts.html">My NFTs</a>
+  </nav>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
     <div id="walletPillContainer"></div>
   </div>
 </header>
-
-<nav class="topnav" id="appNav" style="display:none;">
-  <a href="index.html" class="active">Marketplace</a>
-  <a href="collections.html">Collections</a>
-  <a href="nfts.html">NFTs</a>
-</nav>
 
 <main>
 
@@ -92,9 +89,8 @@
   <section>
     <h2>Sell an NFT</h2>
     <div class="panel status">
-      Own an NFT from a registered collection? Open it from the
-      <a href="nfts.html">NFTs</a> or <a href="collections.html">Collections</a> page — its own detail view is
-      where you approve the marketplace and set a price.
+      Head to <a href="my-nfts.html">My NFTs</a> to see everything your connected wallet holds across every
+      known collection — open any of them to approve the marketplace and set a price.
     </div>
   </section>
 

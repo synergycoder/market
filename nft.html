@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>gnomarket — NFT</title>
+<title>Gno.Market — NFT</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="gnoconnect:rpc" content="127.0.0.1:26658" />
 <meta name="gnoconnect:chainid" content="dev" />
@@ -14,21 +14,18 @@
 <body>
 
 <header>
-  <div>
-    <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket</h1>
-    <div class="sub">item &middot; <span id="chainLabel"></span></div>
-  </div>
+  <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket<span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav" style="display:none;">
+    <a href="index.html">Marketplace</a>
+    <a href="collections.html">Collections</a>
+    <a href="nfts.html">NFTs</a>
+    <a href="my-nfts.html">My NFTs</a>
+  </nav>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
     <div id="walletPillContainer"></div>
   </div>
 </header>
-
-<nav class="topnav" id="appNav" style="display:none;">
-  <a href="index.html">Marketplace</a>
-  <a href="collections.html">Collections</a>
-  <a href="nfts.html">NFTs</a>
-</nav>
 
 <main>
 
@@ -142,7 +139,7 @@ function renderDetail() {
   const s = state;
   document.getElementById("detail").style.display = "grid";
   const tokenName = s.display?.name || `Token ${tokenId}`;
-  document.title = `${tokenName} — gnomarket`;
+  document.title = `${tokenName} — Gno.Market`;
   document.getElementById("tokenCrumb").textContent = tokenName;
   document.getElementById("collectionLink").textContent = s.collectionName;
   document.getElementById("collectionLink").href = `nfts.html?collection=${encodeURIComponent(collectionID)}&network=${encodeURIComponent(currentNetKey)}`;

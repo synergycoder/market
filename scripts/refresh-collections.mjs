@@ -221,16 +221,21 @@ function candidateTokenIds(i) {
   return [String(i + 1), String(i), cford32Compact(i)];
 }
 
+// tokenCount is NEVER trusted as a hard upper bound on the index to probe
+// to — same fix and same real-world cause as shared.js's
+// fetchCollectionTokens (see its doc comment): TokenCount() is current
+// supply, not highest-index-ever-minted, and a single burn can leave a
+// real, currently-held token past that count entirely.
 async function scanHoldersAndFirstToken(rpcUrl, p, tokenCount) {
-  const limit = tokenCount && tokenCount > 0 ? Math.min(tokenCount, MAX_SEQUENTIAL_PROBE) : MAX_SEQUENTIAL_PROBE;
+  const limit = MAX_SEQUENTIAL_PROBE;
   const indices = Array.from({ length: limit }, (_, i) => i);
   const owners = new Set();
   let firstTokenId = null;
   let consecutiveMisses = 0;
 
-  // Sequential (not mapLimit) so "stop after N consecutive misses" (an
-  // unknown-length collection heuristic) and "remember the first resolved
-  // index" both stay meaningful — a concurrent scan would race both.
+  // Sequential (not mapLimit) so "stop after N consecutive misses" and
+  // "remember the first resolved index" both stay meaningful — a
+  // concurrent scan would race both.
   for (const i of indices) {
     let resolved = null;
     for (const tid of candidateTokenIds(i)) {
@@ -241,7 +246,7 @@ async function scanHoldersAndFirstToken(rpcUrl, p, tokenCount) {
     }
     if (!resolved) {
       consecutiveMisses++;
-      if (!tokenCount && consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
+      if (consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
       continue;
     }
     consecutiveMisses = 0;

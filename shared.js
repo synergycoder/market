@@ -107,7 +107,16 @@ function net() { return NETWORKS[currentNetKey]; }
 // selection, and wires it to call onChange(netKey) — the caller owns
 // whatever page-specific reload logic follows a network switch.
 function initNetworkSelect(selectEl, onChange) {
+  // "Local (gnodev)" only ever resolves on the machine actually running
+  // gnodev — real visitors have no use for it and it's just clutter/a
+  // confusing option in the dropdown on the deployed site. Hidden the same
+  // way it's chosen by default in the first place (see defaultNetworkKey):
+  // gated on being served from localhost, so this stays fully visible for
+  // local development and disappears everywhere else, without needing a
+  // second "is this the dev build" flag to keep in sync.
+  const isLocalhost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   for (const [key, n] of Object.entries(NETWORKS)) {
+    if (key === "local" && !isLocalhost) continue;
     selectEl.appendChild(new Option(n.label, key));
   }
   selectEl.value = currentNetKey;
@@ -595,14 +604,25 @@ function candidateTokenIds(i) {
 }
 
 // Discovery has to stay sequential (the "stop after N consecutive misses"
-// heuristic for an unknown-length collection only means anything in index
-// order), but `onToken(token)` fires — and is awaited — the moment each one
-// resolves, before moving to the next index. That lets a caller start
-// enriching/rendering that token immediately instead of waiting for the
-// whole probe to finish, without needing this function itself to change
-// shape.
+// heuristic only means anything in index order), but `onToken(token)` fires
+// — and is awaited — the moment each one resolves, before moving to the
+// next index. That lets a caller start enriching/rendering that token
+// immediately instead of waiting for the whole probe to finish, without
+// needing this function itself to change shape.
+//
+// `tokenCount` is NEVER trusted as a hard upper bound on the index to probe
+// to, only as a hint for the progress display — confirmed live against a
+// real collection (sapphire-1's Gems g7): TokenCount() reports *current
+// supply* (8), not *highest index ever minted*, and a single burned token
+// (id 0000004) among lower indices meant a real, currently-held token at
+// id 0000008 sat past that count entirely and was silently missed when the
+// old code capped enumeration at tokenCount. A collection that burns has a
+// higher max index than its count; always probing the full window (with
+// the same consecutive-miss early exit either way) is the only safe
+// option, at the cost of a handful of extra probes past a known-small
+// collection's real end.
 async function fetchCollectionTokens(path, tokenCount, onProgress, onToken) {
-  const limit = tokenCount && tokenCount > 0 ? Math.min(tokenCount, MAX_SEQUENTIAL_PROBE) : MAX_SEQUENTIAL_PROBE;
+  const limit = MAX_SEQUENTIAL_PROBE;
   const tokens = [];
   let consecutiveMisses = 0;
   for (let i = 0; i < limit; i++) {
@@ -616,7 +636,7 @@ async function fetchCollectionTokens(path, tokenCount, onProgress, onToken) {
     }
     if (!resolved) {
       consecutiveMisses++;
-      if (!tokenCount && consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
+      if (consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
       continue;
     }
     consecutiveMisses = 0;

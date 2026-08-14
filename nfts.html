@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>gnomarket — NFTs</title>
+<title>Gno.Market — NFTs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="stylesheet" href="style.css" />
@@ -10,21 +10,18 @@
 <body>
 
 <header>
-  <div>
-    <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket</h1>
-    <div class="sub">browse NFTs in a collection &middot; <span id="chainLabel"></span></div>
-  </div>
+  <h1><img src="favicon.svg" alt="" class="logo-mark" />gnomarket<span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav" style="display:none;">
+    <a href="index.html">Marketplace</a>
+    <a href="collections.html">Collections</a>
+    <a href="nfts.html" class="active">NFTs</a>
+    <a href="my-nfts.html">My NFTs</a>
+  </nav>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
     <div id="walletPillContainer"></div>
   </div>
 </header>
-
-<nav class="topnav" id="appNav" style="display:none;">
-  <a href="index.html">Marketplace</a>
-  <a href="collections.html">Collections</a>
-  <a href="nfts.html" class="active">NFTs</a>
-</nav>
 
 <main>
 
