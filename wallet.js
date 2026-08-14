@@ -209,14 +209,47 @@ async function resolveApprovalTarget(collectionID, marketAddr) {
   return { target: collectionID, operator: marketAddr };
 }
 
+// Adena's DoContract resolves "success" once a tx is accepted into the
+// mempool (CheckTx), not once it's actually committed to a block — its own
+// response never reliably carries a `height`, only a `hash` (see
+// ~/gno-land-dev-notes.md). Firing List immediately after a "successful"
+// SetApprovalForAll can race ahead of that approval's real on-chain effect,
+// so List's own approval check reads stale state and panics with
+// "marketplace is not approved to transfer this token" even though the
+// seller did everything right. Poll the exact same read nftmarket.gno's own
+// isApproved() performs — IsApprovedForAll(seller, marketAddr) on
+// collectionID, which for a satellite adapter correctly resolves through to
+// its own approval regardless of the operator address passed in — until it
+// genuinely goes true, or give up after a while.
+async function waitForApproval(collectionID, seller, marketAddr, timeoutMs = 20000, intervalMs = 1500) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const [approvedAll] = parseGnoLines(await qevalOn(collectionID, `IsApprovedForAll(${JSON.stringify(seller)}, ${JSON.stringify(marketAddr)})`));
+      if (approvedAll) return true;
+    } catch { /* not visible yet, or a transient read error — keep polling */ }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 // Approves the marketplace (or satellite adapter) for the whole collection,
-// then creates the listing — two transactions. onStatus, if given, is
-// called with a progress message before each Adena prompt.
+// waits for that approval to actually land on-chain, then creates the
+// listing — two transactions. onStatus, if given, is called with a
+// progress message before each Adena prompt and while waiting in between.
 async function listToken(collectionID, tokenId, priceUgnot, marketAddr, onStatus) {
   const { target, operator } = await resolveApprovalTarget(collectionID, marketAddr);
   onStatus?.("Approving marketplace… (1/2, check Adena)");
   const approveRes = await signAndBroadcast(target, "SetApprovalForAll", [operator, "true"], "");
   if (!approveRes.ok) return approveRes;
+
+  onStatus?.("Waiting for the approval to confirm on-chain…");
+  const seller = await ensureConnected();
+  const confirmed = await waitForApproval(collectionID, seller, marketAddr);
+  if (!confirmed) {
+    return { ok: false, message: "Approval was sent but hasn't confirmed on-chain yet — wait a few seconds and try listing again." };
+  }
+
   onStatus?.("Creating listing… (2/2, check Adena)");
   return signAndBroadcast(net().marketPkgPath, "List", [collectionID, tokenId, String(priceUgnot)], "");
 }
