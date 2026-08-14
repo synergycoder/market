@@ -94,6 +94,15 @@ initFooter(document.getElementById("siteFooter"));
 initNetworkSelect(document.getElementById("networkSelect"), () => {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
   loadGeneration++; // invalidate any load still running against the previous network
+  // A collection path is chain-specific — the realm you were just looking
+  // at almost certainly doesn't exist on the network you just switched to,
+  // so leaving its tokens on screen would be showing stale, wrong-chain
+  // data as if it were current. Clear back to the empty state instead.
+  document.getElementById("collectionInput").value = "";
+  document.getElementById("grid").innerHTML = "";
+  document.getElementById("summaryStatus").textContent = "";
+  document.getElementById("summaryStatus").className = "status";
+  document.getElementById("tokensStatus").textContent = "";
 });
 initWalletPill(document.getElementById("walletPillContainer"));
 
@@ -155,24 +164,29 @@ async function loadTokens() {
     summaryEl.textContent = `${name} — ${countNote}`;
 
     statusEl.textContent = "Loading tokens…";
-    const tokens = await fetchCollectionTokens(path, summary.tokenCount, (i, limit) => {
-      if (myGeneration === loadGeneration) statusEl.textContent = `Checking token ${i} of up to ${limit}…`;
-    });
+    let found = 0;
+    const tokens = await fetchCollectionTokens(
+      path, summary.tokenCount,
+      (i, limit) => {
+        if (myGeneration === loadGeneration) statusEl.textContent = `Checking token ${i} of up to ${limit}… (found ${found})`;
+      },
+      async (t) => {
+        // Fires the moment each token resolves — enrich and render it
+        // immediately rather than waiting for the whole collection to
+        // finish probing, so cards (and their images) appear one by one
+        // instead of all at once at the end.
+        if (myGeneration !== loadGeneration) return;
+        const display = await fetchTokenDisplayInfo(path, t.tokenId, t.tokenURI);
+        if (myGeneration !== loadGeneration) return;
+        found++;
+        grid.insertAdjacentHTML("beforeend", tokenCardHtml(path, { ...t, display }));
+      }
+    );
     if (myGeneration !== loadGeneration) return;
 
-    if (tokens.length === 0) {
-      statusEl.textContent = "No tokens found (or this collection doesn't expose OwnerOf as a plain package-level function).";
-      return;
-    }
-    statusEl.textContent = `${tokens.length} token${tokens.length === 1 ? "" : "s"} found.`;
-
-    const enriched = await mapLimit(tokens, 6, async (t) => {
-      const display = await fetchTokenDisplayInfo(path, t.tokenId, t.tokenURI);
-      return { ...t, display };
-    });
-    if (myGeneration !== loadGeneration) return;
-
-    grid.innerHTML = enriched.map((t) => tokenCardHtml(path, t)).join("");
+    statusEl.textContent = tokens.length === 0
+      ? "No tokens found (or this collection doesn't expose OwnerOf as a plain package-level function)."
+      : `${tokens.length} token${tokens.length === 1 ? "" : "s"} found.`;
   } catch (err) {
     if (myGeneration === loadGeneration) {
       summaryEl.textContent = "Failed to load: " + err.message;

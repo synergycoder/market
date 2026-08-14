@@ -200,6 +200,28 @@ function attributesHtml(attributes) {
   return `<div class="traits">${pills}</div>`;
 }
 
+// Calls TokenURI(tid) on a collection's own path, with a fallback to
+// GetTokenURI(tid) — and a validity check, not just a try/catch, because the
+// failure mode here is silent rather than an error. Confirmed against a real
+// deployed collection (gno.land/r/.../gingernft2 on betanet): it declares
+// `type TokenURI string` at package scope and never defines a `TokenURI`
+// *function* at all (its real accessor is `GetTokenURI`) — qeval still
+// "succeeds" against the bare name because Gno resolves it as a type
+// conversion instead (`TokenURI("1")` evaluates to the string "1" recast as
+// that type), so a plain try/catch never sees an error, it just gets back
+// the token ID itself misread as a URI. Only trust a result that actually
+// looks like a URI; otherwise fall through to GetTokenURI, the accessor
+// name gno-observer's own cache builder already uses for this same case.
+async function fetchTokenURI(path, tid) {
+  for (const fn of ["TokenURI", "GetTokenURI"]) {
+    try {
+      const [uri] = parseGnoLines(await qevalOn(path, `${fn}(${JSON.stringify(tid)})`));
+      if (typeof uri === "string" && (uri.startsWith("data:") || /^https?:\/\//.test(uri))) return uri;
+    } catch { /* try the next accessor name */ }
+  }
+  return "";
+}
+
 // Two supported tokenURI shapes: an inline `data:application/json[;base64],<data>`
 // blob (what this repo's demo collection returns — no fetch needed), or a
 // real URL a real collection might return (fetched, OpenSea metadata shape).
@@ -518,7 +540,14 @@ function candidateTokenIds(i) {
   return [String(i + 1), String(i), cford32Compact(i)];
 }
 
-async function fetchCollectionTokens(path, tokenCount, onProgress) {
+// Discovery has to stay sequential (the "stop after N consecutive misses"
+// heuristic for an unknown-length collection only means anything in index
+// order), but `onToken(token)` fires — and is awaited — the moment each one
+// resolves, before moving to the next index. That lets a caller start
+// enriching/rendering that token immediately instead of waiting for the
+// whole probe to finish, without needing this function itself to change
+// shape.
+async function fetchCollectionTokens(path, tokenCount, onProgress, onToken) {
   const limit = tokenCount && tokenCount > 0 ? Math.min(tokenCount, MAX_SEQUENTIAL_PROBE) : MAX_SEQUENTIAL_PROBE;
   const tokens = [];
   let consecutiveMisses = 0;
@@ -537,11 +566,10 @@ async function fetchCollectionTokens(path, tokenCount, onProgress) {
       continue;
     }
     consecutiveMisses = 0;
-    let tokenURI = "";
-    try {
-      [tokenURI] = parseGnoLines(await qevalOn(path, `TokenURI(${JSON.stringify(resolved.tokenId)})`));
-    } catch { /* URI optional */ }
-    tokens.push({ tokenId: resolved.tokenId, owner: resolved.owner, tokenURI: tokenURI || "" });
+    const tokenURI = await fetchTokenURI(path, resolved.tokenId);
+    const token = { tokenId: resolved.tokenId, owner: resolved.owner, tokenURI };
+    tokens.push(token);
+    await onToken?.(token);
   }
   return tokens;
 }

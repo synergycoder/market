@@ -50,7 +50,7 @@
         <span id="scanStatus" class="status"></span>
         <button id="scanBtn" class="secondary">Scan now (live)</button>
       </div>
-      <div id="results"></div>
+      <div id="results" style="overflow-x:auto;"></div>
     </div>
   </section>
 </div>
@@ -196,6 +196,13 @@ async function runScan() {
         if (myGeneration !== scanGeneration) return; // superseded — stop enriching/rendering for a dead scan
         const summary = await fetchCollectionSummary(item.path).catch(() => ({ name: null, symbol: null, tokenCount: null }));
         if (myGeneration !== scanGeneration) return;
+        // Drop confirmed-empty GRC721s (a real 0, not just "couldn't read
+        // it") — this is what actually filters out things like gnoswap's
+        // position/v1 and staker realms, which mention grc721 in source
+        // but never mint anything. Leaves GRC1155 alone (TokenCount isn't
+        // part of that standard here) and leaves an unreadable count alone
+        // too, since null just means "unknown," not "empty."
+        if (item.standard === "GRC721" && summary.tokenCount === 0) return;
         count++;
         appendRow({ ...item, ...summary, holderCount: null, image: null });
       }
@@ -205,9 +212,9 @@ async function runScan() {
     const truncNote = truncated
       ? ` (showing results from the first ${scannedCount} of ${totalRealms} realms — this is a demo-grade scan, not exhaustive)`
       : "";
-    statusEl.textContent = found.length === 0
+    statusEl.textContent = count === 0
       ? `0 NFT collections detected across ${scannedCount} realms scanned.`
-      : `${found.length} NFT collection${found.length === 1 ? "" : "s"} detected across ${scannedCount} realm${scannedCount === 1 ? "" : "s"} scanned.${truncNote}`;
+      : `${count} NFT collection${count === 1 ? "" : "s"} detected across ${scannedCount} realm${scannedCount === 1 ? "" : "s"} scanned.${truncNote}`;
   } catch (err) {
     if (myGeneration === scanGeneration) statusEl.textContent = "Scan failed: " + err.message;
   } finally {

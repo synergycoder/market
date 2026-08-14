@@ -228,10 +228,30 @@ function svgTextToDataUrl(svgText) {
   return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgText)));
 }
 
+// Tries TokenURI(tid) then falls back to GetTokenURI(tid), and only trusts
+// a result that actually looks like a URI. Confirmed against a real
+// deployed collection (betanet's gingernft2): it declares `type TokenURI
+// string` at package scope with no `TokenURI` *function* at all (the real
+// accessor is `GetTokenURI`) — qeval against the bare name doesn't error,
+// it silently resolves as a type conversion and echoes the token ID back
+// as a fake "URI", which is why this needs a validity check, not just a
+// try/catch. Same fix as shared.js's fetchTokenURI (kept separate here on
+// purpose — see this file's own top-of-file note on not importing
+// shared.js into a Node/CI context).
+async function fetchTokenURI(rpcUrl, p, tid) {
+  for (const fn of ["TokenURI", "GetTokenURI"]) {
+    try {
+      const [uri] = parseGnoLines(await qevalOn(rpcUrl, p, `${fn}(${JSON.stringify(tid)})`));
+      if (typeof uri === "string" && (uri.startsWith("data:") || /^https?:\/\//.test(uri))) return uri;
+    } catch { /* try the next accessor name */ }
+  }
+  return "";
+}
+
 async function fetchFirstTokenImage(rpcUrl, p, tid) {
   if (!tid) return null;
   try {
-    const [tokenURI] = parseGnoLines(await qevalOn(rpcUrl, p, `TokenURI(${JSON.stringify(tid)})`));
+    const tokenURI = await fetchTokenURI(rpcUrl, p, tid);
     if (tokenURI && tokenURI.startsWith("data:application/json")) {
       const comma = tokenURI.indexOf(",");
       const header = tokenURI.slice(0, comma);
@@ -278,6 +298,16 @@ async function refreshNetwork(chainId, { rpcUrl, label }) {
     return { ...c, ...summary, holderCount, image };
   });
 
+  // Drop confirmed-empty GRC721s — a real 0 from TokenCount(), not just an
+  // unreadable count — which is what actually filters out realms like
+  // gnoswap's position/v1 and staker: they mention grc721 in source (enough
+  // to pass detectStandard) but never mint anything. Leaves GRC1155 alone
+  // (TokenCount isn't part of that standard here) and leaves an unreadable
+  // count alone too, since null means "unknown," not "empty."
+  const empty = collections.filter((c) => c.standard === "GRC721" && c.tokenCount === 0);
+  const kept = collections.filter((c) => !(c.standard === "GRC721" && c.tokenCount === 0));
+  if (empty.length) console.log(`[${chainId}] dropping ${empty.length} confirmed-empty collection(s): ${empty.map((c) => c.path).join(", ")}`);
+
   const out = {
     chainId,
     label,
@@ -285,7 +315,7 @@ async function refreshNetwork(chainId, { rpcUrl, label }) {
     scannedCount,
     totalRealms,
     truncated,
-    collections,
+    collections: kept,
   };
   await mkdir(DATA_DIR, { recursive: true });
   const outPath = path.join(DATA_DIR, `collections-${chainId}.json`);
