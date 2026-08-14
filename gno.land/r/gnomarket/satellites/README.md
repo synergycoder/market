@@ -71,12 +71,36 @@ marketplace and has no way to repoint itself — there's no such thing as
 bump means every satellite adapter needs its own fresh deploy too, even
 though nothing about the adapter's own logic changed.
 
+## An unexplained qeval-vs-simulate discrepancy (v3 -> v4, unresolved root cause)
+
+v3 hit a real, independently-reproduced bug: `vm/qeval` reads always showed
+a seller's approval as correct (`IsApprovedForAll` → `true`), but the exact
+same check inside a real `List()` transaction — confirmed via `.app/simulate`
+against the same RPC node, same block height, same arguments — consistently
+panicked with "marketplace is not approved to transfer this token" anyway.
+Reproduced independently multiple times with disposable test collections
+(bypassing Adena, the frontend, and the real seller's wallet entirely) to
+rule out caching, Adena's own RPC/simulation behavior, and anything in this
+project's own JavaScript. Narrowed to a real discrepancy between `qeval`
+and `.app/simulate`/real execution specifically for `IsApprovedForAll`
+called through an adapter's interface dispatch — but NOT reliably, since a
+structurally-identical freshly-deployed-and-approved adapter tested clean
+in the same reproduction where an older registration didn't. The working
+theory is some kind of staleness in how `.app/simulate` resolves state for
+adapter-mediated approval checks, but this was never conclusively isolated
+to a single cause before time ran out on the investigation — treat v4 as a
+live mitigation (fresh deploy + fresh registration tested clean), not a
+confirmed fix. If this recurs, the next place to look is whether Gno's own
+node/VM has a known simulate-state-staleness issue, since every avenue
+inside this codebase's own control was ruled out first.
+
 ## Existing adapters
 
-- `gemsg7adapterv3/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
+- `gemsg7adapterv4/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
   ("Gems"), sapphire-1 testnet, registered with `nftmarketv2`. (v1 shipped
   without the defensive `GetApproved`/`IsApprovedForAll` handling above and
   panicked on every trade; v2 fixed that but was still registered with the
-  original `nftmarket`, which got superseded by `nftmarketv2` — see that
-  realm's own doc comment on `PruneStale`. Both v1 and v2's registrations
-  are still on-chain but dead/excluded from the frontend and cache.)
+  original `nftmarket`, superseded by `nftmarketv2`; v3 re-registered
+  against `nftmarketv2` but hit the qeval-vs-simulate issue described above.
+  v1/v2/v3's registrations are still on-chain but dead/excluded from the
+  frontend and cache.)

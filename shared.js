@@ -86,19 +86,17 @@ const CONFIG = {
 // collectionID nothing was ever registered against). Keyed by real path,
 // one entry per satellite adapter that exists.
 const SATELLITE_ADAPTERS = {
-  // v3: re-registered against nftmarketv2 (see NETWORKS.testnet's own
-  // comment) — an adapter's import of the marketplace it registers with is
-  // a static Gno import, so it can't be repointed in place; every
-  // marketplace version bump means every adapter needs its own fresh
-  // deploy too. v2 itself fixed a real bug: the original gemsg7adapter
-  // panicked on every List/Buy ("token id not approved for anyone")
-  // because g7's real GetApproved errors when nothing is individually
-  // approved, and its IsApprovedForAll forwarded the marketplace's own
-  // address instead of checking whether this adapter itself was approved.
-  // See gno.land/r/gnomarket/satellites/gemsg7adapterv3/adapter.gno's own
-  // doc comments for the full detail.
+  // v4: re-deployed after v3 exhibited an unexplained discrepancy between
+  // qeval reads (always showed the approval as correct) and .app/simulate /
+  // a real transaction (consistently panicked with "not approved" anyway)
+  // — reproduced independently multiple times with throwaway test
+  // collections, ruling out Adena, caching, and the app's own JS. A freshly
+  // deployed+registered+approved adapter tested clean in the same
+  // controlled reproduction where v3's older registration didn't, so this
+  // is a live, unproven-but-actionable mitigation, not a confirmed root
+  // cause. v3/v2/v1 registrations are still on-chain but dead/excluded.
   "gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7":
-    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3",
+    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv4",
 };
 
 // The collectionID a "View NFTs"/item link should actually use — the

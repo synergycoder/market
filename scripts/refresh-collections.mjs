@@ -40,8 +40,9 @@ const NETWORKS = {
 // paths to adapter paths, which is a frontend link-generation concern).
 const SATELLITE_ADAPTER_PATHS = new Set([
   "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter", // v1 — superseded, still deployed (immutable), excluded so it doesn't linger as a stale duplicate row
-  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2", // v2 — superseded by v3 (re-registered against nftmarketv2), same reasoning
-  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3",
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2", // v2 — superseded by v3, same reasoning
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3", // v3 — superseded by v4 after an unexplained qeval-vs-simulate discrepancy, same reasoning
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv4", // v4 — current, also excluded (same "would otherwise show up as a duplicate" reasoning applies whether an adapter is live or dead)
 ]);
 
 // Deployed to sapphire-1 purely to end-to-end-test the real approve/list
