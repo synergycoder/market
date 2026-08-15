@@ -251,7 +251,7 @@ async function checkApproval(collectionID, seller, marketAddr) {
 
 // Boolean-only convenience wrapper — used where the caller only needs the
 // current state, not a diagnostic (the initial render check on both
-// nft.html and My NFTs' cards).
+// /nft/ and My NFTs' cards).
 async function isApprovedForListing(collectionID, seller, marketAddr) {
   return (await checkApproval(collectionID, seller, marketAddr)).approved;
 }

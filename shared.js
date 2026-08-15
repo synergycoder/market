@@ -1,5 +1,5 @@
 // Shared chain-access, network-config, and rendering helpers for all
-// gnomarket pages (index.html, collections.html, nfts.html). Kept as one
+// gnomarket pages (/, /collections/, /nfts/). Kept as one
 // plain <script> file (no bundler, no build step) rather than tripling this
 // ~250 lines across three pages.
 //
@@ -243,7 +243,7 @@ function parseGnoLines(raw) {
 // Every active listing in one shot — GetListingsPage(0, 100) renders as a
 // single string, one "collectionID|tokenId|seller|price" line per listing.
 // Fetching this once and filtering in JS (rather than one call per token)
-// matters most on my-nfts.html, which needs listing status for every owned
+// matters most on /my-nfts/, which needs listing status for every owned
 // token, not just one.
 async function fetchAllListings() {
   if (!net().marketplaceDeployed) return [];
@@ -543,7 +543,7 @@ const MAX_REALMS_TO_SCAN = 200; // client-side cap, see scanChainForCollections
 // detected (awaited, so a caller can enrich it inline before the next realm
 // starts) — lets a caller render results incrementally instead of waiting
 // for the whole scan to finish. This is the light client-side fallback scan
-// (collections.html's "Scan now" button) — the primary data source is the
+// (/collections/'s "Scan now" button) — the primary data source is the
 // pre-built cache at data/collections-{chainId}.json (see
 // scripts/refresh-collections.mjs), which also computes thumbnails/holder
 // counts too expensive to run live in every visitor's browser.

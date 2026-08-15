@@ -16,20 +16,20 @@
 <!-- Works around a real bug in Adena's own extension — see
      ~/gno-land-dev-notes.md, "gno-observer: SOLVED — a window.adena that
      never gets set". This tag's URL doesn't need to resolve. -->
-<script src="adena-compat.js"></script>
+<script src="/adena-compat.js"></script>
 
-<link rel="icon" type="image/svg+xml" href="favicon.svg" />
-<link rel="stylesheet" href="style.css" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="stylesheet" href="/style.css" />
 </head>
 <body>
 
 <header>
-  <h1><img src="favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
+  <h1><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
   <nav class="topnav" id="appNav" style="display:none;">
-    <a href="index.html" class="active">Marketplace</a>
-    <a href="collections.html">Collections</a>
-    <a href="nfts.html">NFTs</a>
-    <a href="my-nfts.html">My NFTs</a>
+    <a href="/" class="active">Marketplace</a>
+    <a href="/collections/">Collections</a>
+    <a href="/nfts/">NFTs</a>
+    <a href="/my-nfts/">My NFTs</a>
   </nav>
   <div style="display:flex; align-items:center; gap:0.6rem;">
     <select id="networkSelect"></select>
@@ -42,7 +42,7 @@
 <div id="splashView">
   <div class="splash">
     <div class="splash-badge">Coming soon</div>
-    <img src="favicon.svg" alt="" class="splash-logo" />
+    <img src="/favicon.svg" alt="" class="splash-logo" />
     <h1 class="splash-mark">Gno.Market</h1>
     <p class="splash-tagline">A non-custodial NFT marketplace for gno.land.<br />Trade any GRC721 collection — no escrow, no custody.</p>
     <div class="splash-links">
@@ -91,7 +91,7 @@
   <section>
     <h2>Sell an NFT</h2>
     <div class="panel status">
-      Head to <a href="my-nfts.html">My NFTs</a> to see everything your connected wallet holds across every
+      Head to <a href="/my-nfts/">My NFTs</a> to see everything your connected wallet holds across every
       known collection — open any of them to approve the marketplace and set a price.
     </div>
   </section>
@@ -121,8 +121,8 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="shared.js?v=10"></script>
-<script src="wallet.js?v=10"></script>
+<script src="/shared.js?v=10"></script>
+<script src="/wallet.js?v=10"></script>
 <script>
 // ---------------- network wiring ----------------
 
@@ -360,7 +360,7 @@ function renderListings() {
 }
 
 function itemHref(l) {
-  return `nft.html?collection=${encodeURIComponent(l.collectionID)}&tid=${encodeURIComponent(l.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
+  return `/nft/?collection=${encodeURIComponent(l.collectionID)}&tid=${encodeURIComponent(l.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
 }
 
 function cardHtml(l) {

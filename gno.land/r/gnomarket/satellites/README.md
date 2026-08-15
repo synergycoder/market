@@ -28,7 +28,7 @@ for an adapter-backed listing is unavoidably the adapter's own path, and a
 seller has to grant approval on the **real** collection's contract, to the
 **adapter's** address — not to the marketplace's address directly, and not
 on `collectionID` itself. Each adapter exposes two extra functions,
-`ApprovalTarget()` and `ApprovalOperator()`, so the frontend (`nft.html`)
+`ApprovalTarget()` and `ApprovalOperator()`, so the frontend (`/nft/`)
 can discover where and who; their absence just means a collection was
 registered the normal, native way.
 
