@@ -9,9 +9,11 @@
 </head>
 <body>
 
+<div id="topBanner" class="top-banner"></div>
+
 <header>
-  <h1><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
-  <nav class="topnav" id="appNav" style="display:none;">
+  <h1><a href="/" class="brand-link"><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market</a><span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav">
     <a href="/">Marketplace</a>
     <a href="/collections/">Collections</a>
     <a href="/nfts/" class="active">NFTs</a>
@@ -25,11 +27,7 @@
 
 <main>
 
-<div id="lockedView" class="panel status" style="max-width:480px; margin:4rem auto; text-align:center;">
-  This page is in private testing. <a href="/">Return home</a> and connect the owner's wallet.
-</div>
-
-<div id="appView" style="display:none;">
+<div id="appView">
   <section>
     <h2>NFTs</h2>
     <div class="panel">
@@ -99,9 +97,10 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=13"></script>
-<script src="/wallet.js?v=11"></script>
+<script src="/shared.js?v=14"></script>
+<script src="/wallet.js?v=12"></script>
 <script>
+initTopBanner(document.getElementById("topBanner"));
 initFooter(document.getElementById("siteFooter"));
 initNetworkSelect(document.getElementById("networkSelect"), () => {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
@@ -374,8 +373,8 @@ document.getElementById("loadBtn").addEventListener("click", loadTokens);
 document.getElementById("collectionInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") loadTokens();
 });
-wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadTokens(); });
-window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadTokens(); });
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), loadTokens);
+window.addEventListener("pageshow", (e) => { if (e.persisted) loadTokens(); });
 document.getElementById("favoritesOnlyCheckbox").addEventListener("change", () => { if (allTokens.length) renderTokenGrid(); });
 
 // Arrive pre-filled from /collections/'s "View NFTs" link.
@@ -393,14 +392,11 @@ if (collectionParam) {
   document.getElementById("collectionInput").value = collectionParam;
 }
 
-let unlocked = false;
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner && collectionParam) loadTokens();
-});
+// Called last, deliberately — reaches every function/const defined above.
+// Every `function` declaration is hoisted so call order among those
+// doesn't matter, but a `const`/`let` is not — it sits in its temporal
+// dead zone until execution actually reaches that line.
+if (collectionParam) loadTokens();
 </script>
 </body>
 </html>

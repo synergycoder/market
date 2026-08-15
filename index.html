@@ -23,9 +23,11 @@
 </head>
 <body>
 
+<div id="topBanner" class="top-banner"></div>
+
 <header>
-  <h1><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
-  <nav class="topnav" id="appNav" style="display:none;">
+  <h1><a href="/" class="brand-link"><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market</a><span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav">
     <a href="/" class="active">Marketplace</a>
     <a href="/collections/">Collections</a>
     <a href="/nfts/">NFTs</a>
@@ -39,20 +41,7 @@
 
 <main>
 
-<div id="splashView">
-  <div class="splash">
-    <div class="splash-badge">Coming soon</div>
-    <img src="/favicon.svg" alt="" class="splash-logo" />
-    <h1 class="splash-mark">Gno.Market</h1>
-    <p class="splash-tagline">A non-custodial NFT marketplace for gno.land.<br />Trade any GRC721 collection — no escrow, no custody.</p>
-    <div class="splash-links">
-      <a href="https://github.com/synergycoder/market" target="_blank" rel="noopener">Source</a>
-      <a href="https://gno.land" target="_blank" rel="noopener">gno.land</a>
-    </div>
-  </div>
-</div>
-
-<div id="appView" style="display:none;">
+<div id="appView">
 
   <div id="deployBanner" class="banner" style="display:none;"></div>
 
@@ -130,16 +119,16 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=13"></script>
-<script src="/wallet.js?v=11"></script>
+<script src="/shared.js?v=14"></script>
+<script src="/wallet.js?v=12"></script>
 <script>
 // ---------------- network wiring ----------------
 
-initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
+initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
 initWalletPill(document.getElementById("walletPillContainer"));
+initTopBanner(document.getElementById("topBanner"));
 initFooter(document.getElementById("siteFooter"));
 
-let unlocked = false;
 let allListings = []; // enriched, non-stale — sort/filter re-render from this without a refetch
 let staleListings = []; // enriched, hidden from the grid — candidates for cleanupStaleListings()
 
@@ -462,8 +451,8 @@ document.getElementById("collectionFilter").addEventListener("change", renderLis
 document.getElementById("sortSelect").addEventListener("change", renderListings);
 document.getElementById("searchInput").addEventListener("input", renderListings);
 document.getElementById("favoritesOnlyCheckbox").addEventListener("change", renderListings);
-wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadListings(); });
-window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadListings(); });
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), loadListings);
+window.addEventListener("pageshow", (e) => { if (e.persisted) loadListings(); });
 document.getElementById("cleanupBtn").addEventListener("click", cleanupStaleListings);
 
 if (location.protocol === "file:") {
@@ -471,25 +460,11 @@ if (location.protocol === "file:") {
     "This page is open via file:// — browser wallet extensions like Adena typically won't inject on file:// pages. Serve it over http://localhost instead.";
 }
 
-// ---------------- private-preview gate ----------------
-// Every visitor sees the splash view. Only CONFIG.ownerAddress, connected
-// via Adena, sees the real marketplace — see wallet.js's initGate() and
-// CONFIG.ownerAddress's own doc comment for why (private testing, not a
-// security boundary). Called last, deliberately — its callback can fire
-// SYNCHRONOUSLY (an already-unlocked owner, or the ?on=1 dev bypass) and
-// immediately calls applyNetwork(), which reaches every function/const
-// defined above. Every `function` declaration is hoisted so call order
-// among those doesn't matter, but a `const`/`let` is not — it sits in its
-// temporal dead zone until execution actually reaches that line. Calling
-// initGate() only after all of those have already been declared is what
-// makes that safe.
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("splashView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner) applyNetwork(); // defer all RPC activity until unlocked — no reason to query the chain for a splash-only visitor
-});
+// Called last, deliberately — reaches every function/const defined above.
+// Every `function` declaration is hoisted so call order among those
+// doesn't matter, but a `const`/`let` is not — it sits in its temporal
+// dead zone until execution actually reaches that line.
+applyNetwork();
 </script>
 </body>
 </html>

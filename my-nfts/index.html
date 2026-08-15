@@ -9,9 +9,11 @@
 </head>
 <body>
 
+<div id="topBanner" class="top-banner"></div>
+
 <header>
-  <h1><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
-  <nav class="topnav" id="appNav" style="display:none;">
+  <h1><a href="/" class="brand-link"><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market</a><span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav">
     <a href="/">Marketplace</a>
     <a href="/collections/">Collections</a>
     <a href="/nfts/">NFTs</a>
@@ -25,11 +27,7 @@
 
 <main>
 
-<div id="lockedView" class="panel status" style="max-width:480px; margin:4rem auto; text-align:center;">
-  This page is in private testing. <a href="/">Return home</a> and connect the owner's wallet.
-</div>
-
-<div id="appView" style="display:none;">
+<div id="appView">
   <section>
     <h2>My NFTs</h2>
     <div class="panel">
@@ -62,18 +60,18 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=13"></script>
-<script src="/wallet.js?v=11"></script>
+<script src="/shared.js?v=14"></script>
+<script src="/wallet.js?v=12"></script>
 <script>
+initTopBanner(document.getElementById("topBanner"));
 initFooter(document.getElementById("siteFooter"));
 initWalletPill(document.getElementById("walletPillContainer"));
-initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
+initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
 
-let unlocked = false;
 let scanGeneration = 0;
 
-document.addEventListener("wallet:connected", () => { if (unlocked) applyNetwork(); });
-document.addEventListener("wallet:disconnected", () => { if (unlocked) applyNetwork(); });
+document.addEventListener("wallet:connected", applyNetwork);
+document.addEventListener("wallet:disconnected", applyNetwork);
 
 function applyNetwork() {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
@@ -540,23 +538,16 @@ async function loadMyNfts() {
     : `${found} token${found === 1 ? "" : "s"} across ${collections.length} collection${collections.length === 1 ? "" : "s"} checked.`);
 }
 
-wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked && walletAddress) loadMyNfts(); });
-window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked && walletAddress) loadMyNfts(); });
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (walletAddress) loadMyNfts(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted && walletAddress) loadMyNfts(); });
 
-// Called last, deliberately — see collections.html's own copy of this
-// comment for the full reasoning: initGate's callback can fire
-// synchronously (an already-unlocked owner, or the ?on=1 dev bypass), and
-// only calling it after every const/let above has already been declared
-// avoids a temporal-dead-zone crash in whatever it ends up calling
-// (applyNetwork -> loadMyNfts, which now touches marketAddr synchronously
-// as part of its own cache-first read).
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner) applyNetwork();
-});
+// Called last, deliberately — reaches every function/const defined above,
+// including marketAddr, which loadMyNfts touches synchronously as part of
+// its own cache-first read. Every `function` declaration is hoisted so
+// call order among those doesn't matter, but a `const`/`let` is not — it
+// sits in its temporal dead zone until execution actually reaches that
+// line.
+applyNetwork();
 </script>
 </body>
 </html>

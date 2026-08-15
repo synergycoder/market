@@ -387,28 +387,3 @@ function initWalletPill(container) {
   autoReconnectWallet();
 }
 
-// ---------------- private-preview gate ----------------
-// While gnomarket is only meant to be visible to its own owner (see
-// CONFIG.ownerAddress), every page that shows real app content calls this
-// once, after initWalletPill(). onChange(unlocked) fires immediately with
-// the current state (false, unless a stored connection silently
-// auto-reconnects to the owner's address before this runs — see below) and
-// again on every connect/disconnect.
-//
-// This is a cosmetic UI gate, not a security boundary — the JS (including
-// ownerAddress itself) is fully public static-site source, and no
-// privileged action becomes reachable by unlocking it; every real write
-// still needs an actual wallet signature. ?on=1 exists purely so the app
-// view can be inspected (e.g. by the site owner's own tooling) without an
-// Adena connection.
-function isOwnerConnected() {
-  if (new URLSearchParams(location.search).get("on") === "1") return true;
-  return !!walletAddress && walletAddress === CONFIG.ownerAddress;
-}
-
-function initGate(onChange) {
-  const apply = () => onChange(isOwnerConnected());
-  document.addEventListener("wallet:connected", apply);
-  document.addEventListener("wallet:disconnected", apply);
-  apply();
-}

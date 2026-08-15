@@ -67,13 +67,6 @@ const NETWORKS = {
 
 const CONFIG = {
   adenaAppName: "gnomarket",
-  // While gnomarket is in private testing, the full app is only shown to
-  // this address — everyone else (and anyone not connected) sees the
-  // splash view instead. See wallet.js's initGate(). Not a security
-  // boundary (the chain itself is public to anyone who queries it
-  // directly) — purely a UI convenience so casual visitors to gno.market
-  // see "coming soon" instead of a half-finished trading UI.
-  ownerAddress: "g18pph34e6e70whfqzk6m4kv6cdtl47nm4vlfl4x",
 };
 
 // Real collection path -> the satellite adapter that fronts it for the
@@ -160,14 +153,25 @@ function initNetworkSelect(selectEl, onChange) {
 
 // Injects the standing disclaimer footer into `container` — call once per
 // page. Kept as one shared function (not duplicated HTML per page) so the
-// wording never drifts between pages.
+// wording never drifts between pages. The independence disclaimer itself
+// lives in the top banner now (see initTopBanner) — easy to miss at the
+// bottom of the page, especially on a long listings/collection grid — this
+// keeps only the secondary "beta, use at your own risk" note.
 function initFooter(container) {
   container.innerHTML = `
-    <p>gnomarket is an independent, community-built project. It is not affiliated with, endorsed by, or
-    part of the official gno.land project.</p>
     <p>This site is in beta and provided "as is," without warranties of any kind. Use at your own risk —
     testnet tokens have no real-world value, and mainnet trading (once available) carries the same risks
     as any other smart contract interaction.</p>`;
+}
+
+// Injects the "not affiliated with gno.land" disclaimer as a warning-styled
+// banner above the header — moved here from the bottom of the footer
+// specifically so it can't be scrolled past unseen. Call once per page,
+// before initFooter (or anywhere — order doesn't matter, this doesn't
+// depend on it).
+function initTopBanner(container) {
+  container.innerHTML =
+    `Gno.Market is an independent, community-built project. It is not affiliated with, endorsed by, or part of the official gno.land project.`;
 }
 
 // Re-points the GnoConnect meta tags (docs.gno.land/resources/gnoconnect) so

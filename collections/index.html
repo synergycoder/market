@@ -9,9 +9,11 @@
 </head>
 <body>
 
+<div id="topBanner" class="top-banner"></div>
+
 <header>
-  <h1><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market<span id="chainLabel" style="display:none;"></span></h1>
-  <nav class="topnav" id="appNav" style="display:none;">
+  <h1><a href="/" class="brand-link"><img src="/favicon.svg" alt="" class="logo-mark" />Gno.Market</a><span id="chainLabel" style="display:none;"></span></h1>
+  <nav class="topnav" id="appNav">
     <a href="/">Marketplace</a>
     <a href="/collections/" class="active">Collections</a>
     <a href="/nfts/">NFTs</a>
@@ -25,11 +27,7 @@
 
 <main>
 
-<div id="lockedView" class="panel status" style="max-width:480px; margin:4rem auto; text-align:center;">
-  This page is in private testing. <a href="/">Return home</a> and connect the owner's wallet.
-</div>
-
-<div id="appView" style="display:none;">
+<div id="appView">
   <section>
     <h2>Collections</h2>
     <div class="panel">
@@ -71,14 +69,14 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=13"></script>
-<script src="/wallet.js?v=11"></script>
+<script src="/shared.js?v=14"></script>
+<script src="/wallet.js?v=12"></script>
 <script>
-initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
+initNetworkSelect(document.getElementById("networkSelect"), applyNetwork);
 initWalletPill(document.getElementById("walletPillContainer"));
+initTopBanner(document.getElementById("topBanner"));
 initFooter(document.getElementById("siteFooter"));
 
-let unlocked = false;
 let scanGeneration = 0;
 
 function applyNetwork() {
@@ -349,31 +347,20 @@ async function runScan() {
 }
 
 document.getElementById("scanBtn").addEventListener("click", runScan);
-wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadCachedCollections(); });
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), loadCachedCollections);
 
-// Defensive fix for the same underlying bug from the other direction:
-// Chrome/Safari can restore this exact page from the back-forward cache
-// (no JS re-execution) if the user navigates here via the browser's own
-// Back/Forward buttons — which would otherwise freeze whatever was showing
-// at the moment they navigated away, blank table mid-scan included.
-window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadCachedCollections(); });
+// Defensive fix for a real bug: Chrome/Safari can restore this exact page
+// from the back-forward cache (no JS re-execution) if the user navigates
+// here via the browser's own Back/Forward buttons — which would otherwise
+// freeze whatever was showing at the moment they navigated away, blank
+// table mid-scan included.
+window.addEventListener("pageshow", (e) => { if (e.persisted) loadCachedCollections(); });
 
-// Called last, deliberately — its callback can fire SYNCHRONOUSLY (an
-// already-unlocked owner, or the ?on=1 dev bypass) and immediately calls
-// applyNetwork(), which reaches every function/const defined above. Every
-// `function` declaration is hoisted so call order among those doesn't
-// matter, but a `const`/`let` is not — it sits in its temporal dead zone
-// until execution actually reaches that line. Calling initGate() only
-// after all of those have already been declared, rather than partway
-// through the script, is what makes that safe regardless of which
-// function ends up running first.
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner) applyNetwork();
-});
+// Called last, deliberately — reaches every function/const defined above.
+// Every `function` declaration is hoisted so call order among those
+// doesn't matter, but a `const`/`let` is not — it sits in its temporal
+// dead zone until execution actually reaches that line.
+applyNetwork();
 </script>
 </body>
 </html>

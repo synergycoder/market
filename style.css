@@ -32,6 +32,18 @@ body {
   color: var(--text);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+/* Always the first thing in <body> — a project-affiliation disclaimer
+   that used to sit as the footer's first line, easy to scroll past
+   unnoticed on any page with a real grid of content above it. Same
+   warning colors as .banner (below), full-width so it reads as a notice
+   rather than page content. */
+.top-banner {
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-border);
+  padding: 0.5rem 1.5rem;
+  font-size: 0.8rem;
+  text-align: center;
+}
 header {
   display: flex;
   align-items: center;
@@ -42,6 +54,10 @@ header {
   border-bottom: 1px solid var(--border);
 }
 header h1 { font-size: 1.15rem; margin: 0; display: flex; align-items: center; gap: 0.6rem; flex: none; }
+header h1 .brand-link {
+  display: flex; align-items: center; gap: 0.6rem;
+  color: inherit; text-decoration: none;
+}
 header h1 .logo-mark {
   width: 2.4em;
   height: 2.4em;
@@ -311,17 +327,3 @@ footer.site-footer {
 }
 footer.site-footer p { margin: 0 0 0.4rem; }
 footer.site-footer p:last-child { margin-bottom: 0; }
-
-/* ---------------- splash (gated home page) ---------------- */
-.splash { max-width: 480px; margin: 4rem auto; text-align: center; }
-.splash-badge {
-  display: inline-block; border: 1px solid var(--border); border-radius: 999px;
-  padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--accent); margin-bottom: 2rem;
-}
-.splash-logo { width: 3rem; height: 3rem; margin-bottom: 0.75rem; }
-.splash-mark { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 0.75rem; }
-.splash-tagline { color: var(--muted); font-size: 1.05rem; margin: 0 0 2rem; }
-.splash-links { display: flex; gap: 1.25rem; justify-content: center; font-size: 0.9rem; }
-.splash-links a { color: var(--muted); text-decoration: none; border-bottom: 1px solid transparent; }
-.splash-links a:hover { color: var(--text); border-bottom-color: var(--accent); }
