@@ -683,29 +683,61 @@ function candidateTokenIds(i) {
 // the same consecutive-miss early exit either way) is the only safe
 // option, at the cost of a handful of extra probes past a known-small
 // collection's real end.
+// Indices are still probed in batches of PROBE_BATCH_SIZE that run in
+// strict order (batch 0 fully resolves before batch 1 starts), so
+// consecutiveMisses is counted exactly as it would be in a purely
+// sequential scan — only the RPC round trips *within* a batch happen
+// concurrently instead of one at a time, which is what actually made this
+// slow (one network round trip per candidate ID, per index, awaited in
+// series — up to 3 candidate shapes per index, all now fired concurrently
+// too, see below). Worst case this fires a handful of extra probes past
+// where a strictly-sequential scan would have stopped (whichever index
+// inside the final batch hits the miss limit) — a small, bounded cost for
+// a large speedup on the dominant cost of this whole function. Peak
+// concurrent requests is PROBE_BATCH_SIZE * 3 (candidate shapes per
+// index) — kept modest since this hits a shared public RPC on every real
+// page load, not just once.
+const PROBE_BATCH_SIZE = 6;
+
 async function fetchCollectionTokens(path, tokenCount, onProgress, onToken) {
   const limit = MAX_SEQUENTIAL_PROBE;
   const tokens = [];
   let consecutiveMisses = 0;
-  for (let i = 0; i < limit; i++) {
-    onProgress?.(i + 1, limit);
-    let resolved = null;
-    for (const tid of candidateTokenIds(i)) {
-      try {
-        const [owner] = parseGnoLines(await qevalOn(path, `OwnerOf(${JSON.stringify(tid)})`));
-        if (owner) { resolved = { tokenId: tid, owner }; break; }
-      } catch { /* try the next candidate ID shape */ }
+  for (let batchStart = 0; batchStart < limit; batchStart += PROBE_BATCH_SIZE) {
+    const batchEnd = Math.min(batchStart + PROBE_BATCH_SIZE, limit);
+    onProgress?.(batchStart + 1, limit);
+    const indices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
+    const results = await mapLimit(indices, PROBE_BATCH_SIZE, async (i) => {
+      // The candidate ID shapes for one index are tried concurrently too,
+      // not just the indices themselves — at most one shape is ever a real
+      // token's ID, so trying them one at a time (as this used to) pays a
+      // full extra sequential round trip per wrong guess, on every single
+      // index, for every collection whose real ID convention isn't the
+      // first candidate tried (e.g. seqid/cford32 collections like Gems,
+      // where the right shape is the 3rd candidate).
+      const attempts = await Promise.all(candidateTokenIds(i).map(async (tid) => {
+        try {
+          const [owner] = parseGnoLines(await qevalOn(path, `OwnerOf(${JSON.stringify(tid)})`));
+          return owner ? { tokenId: tid, owner } : null;
+        } catch {
+          return null; // try the next candidate ID shape
+        }
+      }));
+      return attempts.find(Boolean) || null;
+    });
+    for (const resolved of results) {
+      if (!resolved) {
+        consecutiveMisses++;
+        if (consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
+        continue;
+      }
+      consecutiveMisses = 0;
+      const tokenURI = await fetchTokenURI(path, resolved.tokenId);
+      const token = { tokenId: resolved.tokenId, owner: resolved.owner, tokenURI };
+      tokens.push(token);
+      await onToken?.(token);
     }
-    if (!resolved) {
-      consecutiveMisses++;
-      if (consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
-      continue;
-    }
-    consecutiveMisses = 0;
-    const tokenURI = await fetchTokenURI(path, resolved.tokenId);
-    const token = { tokenId: resolved.tokenId, owner: resolved.owner, tokenURI };
-    tokens.push(token);
-    await onToken?.(token);
+    if (consecutiveMisses >= CONSECUTIVE_MISS_LIMIT) break;
   }
   return tokens;
 }
