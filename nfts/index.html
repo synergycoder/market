@@ -42,7 +42,17 @@
           <button id="loadBtn">Load tokens</button>
         </div>
       </div>
-      <p class="status" id="summaryStatus"></p>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+        <p class="status" id="summaryStatus" style="margin:0;"></p>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <select id="autoRefreshSelect" title="Auto-refresh (re-scans the chain — off by default to avoid extra load on the shared public RPC)">
+            <option value="0">Auto-refresh: off</option>
+            <option value="60000">Auto-refresh: 1 min</option>
+            <option value="300000">Auto-refresh: 5 min</option>
+          </select>
+          <button id="refreshBtn" class="secondary">Refresh</button>
+        </div>
+      </div>
       <details>
         <summary>Why might some tokens be missing?</summary>
         <p class="status">
@@ -85,7 +95,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=11"></script>
+<script src="/shared.js?v=12"></script>
 <script src="/wallet.js?v=10"></script>
 <script>
 initFooter(document.getElementById("siteFooter"));
@@ -139,6 +149,8 @@ function tokenCardHtml(collectionPath, t) {
     </a>`;
 }
 
+function tokensCacheKey(path) { return `tokens:${net().chainId}:${path}`; }
+
 async function loadTokens() {
   const myGeneration = ++loadGeneration;
   const path = document.getElementById("collectionInput").value.trim();
@@ -147,12 +159,27 @@ async function loadTokens() {
   const grid = document.getElementById("grid");
   const btn = document.getElementById("loadBtn");
 
-  grid.innerHTML = "";
-  statusEl.textContent = "";
   if (!path) {
+    grid.innerHTML = "";
+    statusEl.textContent = "";
     summaryEl.textContent = "Enter a collection path first — or pick one from the Collections page.";
     summaryEl.className = "status error";
     return;
+  }
+
+  // Show whatever's cached for this exact collection instantly — never
+  // blank the grid just because a refresh (manual, auto, or a fresh page
+  // load) started. Only replaced once the live scan below has a complete,
+  // authoritative result to swap in.
+  const cacheKey = tokensCacheKey(path);
+  const cached = cacheGet(cacheKey);
+  const hasCache = !!cached?.data.length;
+  if (hasCache) {
+    grid.innerHTML = cached.data.map((t) => tokenCardHtml(path, t)).join("");
+    statusEl.textContent = `Showing ${cached.data.length} cached token${cached.data.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refreshing…`;
+  } else {
+    grid.innerHTML = "";
+    statusEl.textContent = "";
   }
 
   btn.disabled = true;
@@ -165,34 +192,46 @@ async function loadTokens() {
     const countNote = summary.tokenCount != null ? `${summary.tokenCount} tokens (TokenCount)` : "token count unavailable, probing up to 60";
     summaryEl.textContent = `${name} — ${countNote}`;
 
-    statusEl.textContent = "Loading tokens…";
+    statusEl.textContent = hasCache ? "Refreshing…" : "Loading tokens…";
     let found = 0;
+    const freshTokens = [];
     const tokens = await fetchCollectionTokens(
       path, summary.tokenCount,
       (i, limit) => {
-        if (myGeneration === loadGeneration) statusEl.textContent = `Checking token ${i} of up to ${limit}… (found ${found})`;
+        if (myGeneration === loadGeneration) statusEl.textContent = `${hasCache ? "Refreshing" : "Checking"} token ${i} of up to ${limit}… (found ${found})`;
       },
       async (t) => {
-        // Fires the moment each token resolves — enrich and render it
-        // immediately rather than waiting for the whole collection to
-        // finish probing, so cards (and their images) appear one by one
-        // instead of all at once at the end.
         if (myGeneration !== loadGeneration) return;
         const display = await fetchTokenDisplayInfo(path, t.tokenId, t.tokenURI);
         if (myGeneration !== loadGeneration) return;
         found++;
-        grid.insertAdjacentHTML("beforeend", tokenCardHtml(path, { ...t, display }));
+        const enriched = { ...t, display };
+        freshTokens.push(enriched);
+        // Cold start only — reveal cards as they're found instead of
+        // waiting for the whole collection to finish probing. When
+        // there's a cache, the old grid stays put until the authoritative
+        // re-render below, rather than mixing old and partial-new cards.
+        if (!hasCache) grid.insertAdjacentHTML("beforeend", tokenCardHtml(path, enriched));
       }
     );
     if (myGeneration !== loadGeneration) return;
 
+    // Authoritative full re-render either way — catches a token sold,
+    // transferred, or burned since the cache was written, not just newly
+    // found ones.
+    grid.innerHTML = freshTokens.map((t) => tokenCardHtml(path, t)).join("");
+    cacheSet(cacheKey, freshTokens);
     statusEl.textContent = tokens.length === 0
       ? "No tokens found (or this collection doesn't expose OwnerOf as a plain package-level function)."
       : `${tokens.length} token${tokens.length === 1 ? "" : "s"} found.`;
   } catch (err) {
     if (myGeneration === loadGeneration) {
-      summaryEl.textContent = "Failed to load: " + err.message;
-      summaryEl.className = "status error";
+      if (hasCache) {
+        statusEl.textContent = `Showing ${cached.data.length} cached token${cached.data.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refresh failed: ${err.message}`;
+      } else {
+        summaryEl.textContent = "Failed to load: " + err.message;
+        summaryEl.className = "status error";
+      }
     }
   } finally {
     if (myGeneration === loadGeneration) btn.disabled = false;
@@ -203,6 +242,8 @@ document.getElementById("loadBtn").addEventListener("click", loadTokens);
 document.getElementById("collectionInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") loadTokens();
 });
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadTokens(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadTokens(); });
 
 // Arrive pre-filled from /collections/'s "View NFTs" link.
 const params = new URLSearchParams(location.search);

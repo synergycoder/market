@@ -44,9 +44,17 @@
         that would mean every visitor re-scanning the whole chain). Use "Scan now" for anything deployed
         more recently than the last refresh.
       </p>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; gap:0.5rem; flex-wrap:wrap;">
         <span id="scanStatus" class="status"></span>
-        <button id="scanBtn" class="secondary">Scan now (live)</button>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <select id="autoRefreshSelect" title="Auto-refresh (re-reads the pre-built cache file only — no chain queries)">
+            <option value="0">Auto-refresh: off</option>
+            <option value="60000">Auto-refresh: 1 min</option>
+            <option value="300000">Auto-refresh: 5 min</option>
+          </select>
+          <button id="refreshBtn" class="secondary">Refresh</button>
+          <button id="scanBtn" class="secondary">Scan now (live)</button>
+        </div>
       </div>
       <div id="results" style="overflow-x:auto;"></div>
     </div>
@@ -57,7 +65,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=11"></script>
+<script src="/shared.js?v=12"></script>
 <script src="/wallet.js?v=10"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked) applyNetwork(); });
@@ -65,23 +73,13 @@ initWalletPill(document.getElementById("walletPillContainer"));
 initFooter(document.getElementById("siteFooter"));
 
 let unlocked = false;
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner) applyNetwork();
-});
-
 let scanGeneration = 0;
 
 function applyNetwork() {
   const n = net();
   document.getElementById("chainLabel").textContent = n.chainId + " @ " + n.rpcUrl;
   scanGeneration++; // invalidate any scan still running against the previous network
-  document.getElementById("results").innerHTML = "";
-  document.getElementById("scanStatus").textContent = "";
-  loadCachedCollections();
+  loadCachedCollections(); // shows this network's own cached copy instantly if there is one, no blank flash
 }
 
 // One row shape for both data sources: the pre-built cache (name/symbol/
@@ -197,36 +195,48 @@ function appendRow(item) {
   refreshHoldings();
 }
 
-function relativeTime(iso) {
-  const ms = Date.now() - new Date(iso).getTime();
-  const min = Math.round(ms / 60000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.round(min / 60);
-  return `${hr} hour${hr === 1 ? "" : "s"} ago`;
-}
+function collectionsCacheKey() { return `collections:${net().chainId}`; }
 
 // Primary data source: the pre-built cache (see this page's own
 // explanatory note in the page). Not present for "local" — a personal
 // gnodev instance has no CI to run the generator against — so that network
 // falls straight through to "no cached data, use Scan now".
+//
+// Reads a LOCALLY persisted copy first (instant, zero network) so a page
+// load or "Refresh" click never has to blank the table while waiting on
+// even the cheap static-file fetch — then fetches the real file to pick up
+// anything published since. This is also what makes auto-refresh here safe
+// to default on: it's a fetch of our own pre-built JSON, never a chain
+// query, so polling it costs the RPC nothing at all.
 async function loadCachedCollections() {
   const myGeneration = scanGeneration;
   const statusEl = document.getElementById("scanStatus");
-  statusEl.textContent = "Loading…";
+  const key = collectionsCacheKey();
+  const cached = cacheGet(key);
+  if (cached) {
+    renderTable(cached.data.collections);
+    statusEl.textContent = `${cached.data.collections.length} NFT collection${cached.data.collections.length === 1 ? "" : "s"} · showing cached copy from ${relativeTime(cached.savedAt)} — refreshing…`;
+  } else {
+    statusEl.textContent = "Loading…";
+  }
   try {
-    const res = await fetch(`data/collections-${net().chainId}.json`, { cache: "no-store" });
+    const res = await fetch(`/data/collections-${net().chainId}.json`, { cache: "no-store" });
     if (myGeneration !== scanGeneration) return;
     if (!res.ok) throw new Error("no cache for this network");
     const data = await res.json();
     if (myGeneration !== scanGeneration) return;
+    cacheSet(key, data);
     renderTable(data.collections);
     const truncNote = data.truncated ? ` (first ${data.scannedCount} of ${data.totalRealms} realms — not exhaustive)` : "";
     statusEl.textContent = `${data.collections.length} NFT collection${data.collections.length === 1 ? "" : "s"} · updated ${relativeTime(data.generatedAt)}.${truncNote}`;
-  } catch {
+  } catch (err) {
     if (myGeneration !== scanGeneration) return;
-    renderTable([]);
-    statusEl.textContent = `No cached data for ${net().label} yet — click "Scan now" for a live scan.`;
+    if (cached) {
+      statusEl.textContent = `${cached.data.collections.length} NFT collection${cached.data.collections.length === 1 ? "" : "s"} · showing cached copy from ${relativeTime(cached.savedAt)} — refresh failed: ${err.message}`;
+    } else {
+      renderTable([]);
+      statusEl.textContent = `No cached data for ${net().label} yet — click "Scan now" for a live scan.`;
+    }
   }
 }
 
@@ -240,8 +250,15 @@ async function runScan() {
   const btn = document.getElementById("scanBtn");
   const statusEl = document.getElementById("scanStatus");
   btn.disabled = true;
-  renderTable([]);
+  // Deliberately NOT clearing #results here — whatever's already showing
+  // (the cache, or a previous scan) stays up until this scan actually has
+  // its first real row to replace it with. Blanking immediately used to
+  // mean a scan interrupted by navigating away (or the page coming back
+  // from the browser's bfcache mid-scan) could leave the table stuck
+  // empty — see pageshow handler below for the bfcache half of that fix.
   let count = 0;
+  let cleared = false;
+  const items = [];
   try {
     const { found, scannedCount, truncated, totalRealms } = await scanChainForCollections(
       (scanned, total) => {
@@ -266,11 +283,15 @@ async function runScan() {
         // best-effort, a failed/slow lookup shouldn't block the row itself.
         const image = item.standard === "GRC721" ? await fetchFirstTokenImage(item.path).catch(() => null) : null;
         if (myGeneration !== scanGeneration) return;
-        appendRow({ ...item, ...summary, holderCount: null, image });
+        const row = { ...item, ...summary, holderCount: null, image };
+        items.push(row);
+        if (!cleared) { cleared = true; renderTable([]); } // first real row — safe to replace the old view now
+        appendRow(row);
       }
     );
     if (myGeneration !== scanGeneration) return; // superseded by a network switch or a newer scan
 
+    cacheSet(collectionsCacheKey(), { collections: items, generatedAt: new Date().toISOString(), truncated, scannedCount, totalRealms });
     const truncNote = truncated
       ? ` (showing results from the first ${scannedCount} of ${totalRealms} realms — this is a demo-grade scan, not exhaustive)`
       : "";
@@ -285,6 +306,31 @@ async function runScan() {
 }
 
 document.getElementById("scanBtn").addEventListener("click", runScan);
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadCachedCollections(); });
+
+// Defensive fix for the same underlying bug from the other direction:
+// Chrome/Safari can restore this exact page from the back-forward cache
+// (no JS re-execution) if the user navigates here via the browser's own
+// Back/Forward buttons — which would otherwise freeze whatever was showing
+// at the moment they navigated away, blank table mid-scan included.
+window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadCachedCollections(); });
+
+// Called last, deliberately — its callback can fire SYNCHRONOUSLY (an
+// already-unlocked owner, or the ?on=1 dev bypass) and immediately calls
+// applyNetwork(), which reaches every function/const defined above. Every
+// `function` declaration is hoisted so call order among those doesn't
+// matter, but a `const`/`let` is not — it sits in its temporal dead zone
+// until execution actually reaches that line. Calling initGate() only
+// after all of those have already been declared, rather than partway
+// through the script, is what makes that safe regardless of which
+// function ends up running first.
+initGate((isOwner) => {
+  unlocked = isOwner;
+  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
+  document.getElementById("appNav").style.display = isOwner ? "" : "none";
+  document.getElementById("appView").style.display = isOwner ? "" : "none";
+  if (isOwner) applyNetwork();
+});
 </script>
 </body>
 </html>

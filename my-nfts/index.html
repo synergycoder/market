@@ -41,7 +41,17 @@
         <a href="/collections/">Collections</a> page first.
       </p>
       <div id="connectPrompt" class="status" style="display:none;">Connect your wallet above to see what you hold.</div>
-      <div id="scanStatus" class="status"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+        <div id="scanStatus" class="status" style="margin:0;"></div>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <select id="autoRefreshSelect" title="Auto-refresh (re-scans the chain — off by default to avoid extra load on the shared public RPC)">
+            <option value="0">Auto-refresh: off</option>
+            <option value="60000">Auto-refresh: 1 min</option>
+            <option value="300000">Auto-refresh: 5 min</option>
+          </select>
+          <button id="refreshBtn" class="secondary">Refresh</button>
+        </div>
+      </div>
       <div id="grid" class="grid"></div>
     </div>
   </section>
@@ -51,7 +61,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=11"></script>
+<script src="/shared.js?v=12"></script>
 <script src="/wallet.js?v=10"></script>
 <script>
 initFooter(document.getElementById("siteFooter"));
@@ -60,14 +70,6 @@ initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked
 
 let unlocked = false;
 let scanGeneration = 0;
-
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner) applyNetwork();
-});
 
 document.addEventListener("wallet:connected", () => { if (unlocked) applyNetwork(); });
 document.addEventListener("wallet:disconnected", () => { if (unlocked) applyNetwork(); });
@@ -288,26 +290,16 @@ function wireCardActions() {
 // wallet) in localStorage means a reload shows something instantly; the
 // real scan still runs every time to catch changes, just in the
 // background, and only replaces what's on screen once it's done.
-const MY_NFTS_CACHE_PREFIX = "gnomarket:myNfts:";
-function myNftsCacheKey() { return `${MY_NFTS_CACHE_PREFIX}${net().chainId}:${walletAddress}`; }
+function myNftsCacheKey() { return `myNfts:${net().chainId}:${walletAddress}`; }
 
+// Thin wrappers over shared.js's generic cacheGet/cacheSet keeping this
+// page's own {savedAt, entries} shape so the rest of this file didn't need
+// to change when the cache mechanism itself moved to shared.js.
 function loadMyNftsCache() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(myNftsCacheKey()));
-    return Array.isArray(parsed?.entries) ? parsed : null;
-  } catch { return null; }
+  const cached = cacheGet(myNftsCacheKey());
+  return cached && Array.isArray(cached.data) ? { savedAt: cached.savedAt, entries: cached.data } : null;
 }
-function saveMyNftsCache(entries) {
-  try { localStorage.setItem(myNftsCacheKey(), JSON.stringify({ savedAt: Date.now(), entries })); }
-  catch { /* storage full, disabled, or private mode — just skip caching */ }
-}
-function relTime(ts) {
-  const mins = Math.round((Date.now() - ts) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
-  const hrs = Math.round(mins / 60);
-  return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
-}
+function saveMyNftsCache(entries) { cacheSet(myNftsCacheKey(), entries); }
 
 function renderEntry(e) { return myTokenCardHtml(e.collectionPath, e.collectionName, e.token, e.listing); }
 function renderEntries(entries) {
@@ -331,19 +323,19 @@ async function loadMyNfts() {
   }
   const setScanStatus = (msg, cls = "status") => { statusEl.innerHTML = msg; statusEl.className = cls; };
   setScanStatus(hasCache
-    ? `<span class="spinner"></span>Showing ${cached.entries.length} cached token${cached.entries.length === 1 ? "" : "s"} from ${relTime(cached.savedAt)} — refreshing…`
+    ? `<span class="spinner"></span>Showing ${cached.entries.length} cached token${cached.entries.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refreshing…`
     : `<span class="spinner"></span>Scanning your wallet — this can take a few seconds…`);
 
   let collections;
   try {
-    const res = await fetch(`data/collections-${net().chainId}.json`, { cache: "no-store" });
+    const res = await fetch(`/data/collections-${net().chainId}.json`, { cache: "no-store" });
     if (!res.ok) throw new Error(`no cached collections for ${net().label} yet — try Collections' "Scan now"`);
     const data = await res.json();
     collections = data.collections.filter((c) => c.standard === "GRC721"); // GRC1155 balances aren't enumerated per-token here yet
   } catch (err) {
     if (myGeneration !== scanGeneration) return;
     setScanStatus(hasCache
-      ? `Showing ${cached.entries.length} cached token${cached.entries.length === 1 ? "" : "s"} from ${relTime(cached.savedAt)} — refresh failed: ${err.message}`
+      ? `Showing ${cached.entries.length} cached token${cached.entries.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refresh failed: ${err.message}`
       : "Couldn't check your holdings: " + err.message, "status error");
     return;
   }
@@ -420,6 +412,24 @@ async function loadMyNfts() {
     ? `You don't hold any tokens in the ${collections.length} collection${collections.length === 1 ? "" : "s"} Gno.Market currently knows about.`
     : `${found} token${found === 1 ? "" : "s"} across ${collections.length} collection${collections.length === 1 ? "" : "s"} checked.`);
 }
+
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked && walletAddress) loadMyNfts(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked && walletAddress) loadMyNfts(); });
+
+// Called last, deliberately — see collections.html's own copy of this
+// comment for the full reasoning: initGate's callback can fire
+// synchronously (an already-unlocked owner, or the ?on=1 dev bypass), and
+// only calling it after every const/let above has already been declared
+// avoids a temporal-dead-zone crash in whatever it ends up calling
+// (applyNetwork -> loadMyNfts, which now touches marketAddr synchronously
+// as part of its own cache-first read).
+initGate((isOwner) => {
+  unlocked = isOwner;
+  document.getElementById("lockedView").style.display = isOwner ? "none" : "";
+  document.getElementById("appNav").style.display = isOwner ? "" : "none";
+  document.getElementById("appView").style.display = isOwner ? "" : "none";
+  if (isOwner) applyNetwork();
+});
 </script>
 </body>
 </html>

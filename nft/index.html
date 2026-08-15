@@ -40,7 +40,17 @@
     <span id="tokenCrumb"></span>
   </div>
 
-  <div id="loadStatus" class="status">Loading…</div>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+    <div id="loadStatus" class="status" style="margin:0;">Loading…</div>
+    <div style="display:flex; align-items:center; gap:0.5rem;">
+      <select id="autoRefreshSelect" title="Auto-refresh (re-reads this item from the chain — off by default to avoid extra load on the shared public RPC)">
+        <option value="0">Auto-refresh: off</option>
+        <option value="30000">Auto-refresh: 30s</option>
+        <option value="60000">Auto-refresh: 1 min</option>
+      </select>
+      <button id="refreshBtn" class="secondary">Refresh</button>
+    </div>
+  </div>
 
   <div id="detail" class="detail-layout" style="display:none;">
     <div class="detail-media" id="detailMedia"></div>
@@ -65,7 +75,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=11"></script>
+<script src="/shared.js?v=12"></script>
 <script src="/wallet.js?v=10"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); if (unlocked) load(); });
@@ -90,16 +100,32 @@ let tradePanelGeneration = 0; // invalidates an in-flight approval check if rend
 
 async function qevalMarket(expr) { return qevalOn(net().marketPkgPath, expr); }
 
+function nftCacheKey() { return `nft:${net().chainId}:${collectionID}:${tokenId}`; }
+
 async function load() {
   document.getElementById("chainLabel").textContent = net().chainId + " @ " + net().rpcUrl;
-  document.getElementById("detail").style.display = "none";
   const statusEl = document.getElementById("loadStatus");
   if (!collectionID || !tokenId) {
+    document.getElementById("detail").style.display = "none";
     statusEl.textContent = "Missing collection or token ID in the URL.";
     statusEl.className = "status error";
     return;
   }
-  statusEl.textContent = "Loading…";
+
+  // Show whatever's already known — an earlier load in this same page
+  // view, or a cached copy from a previous visit — instantly, and only
+  // hide the panel if there's genuinely nothing to show yet.
+  let usingCache = false;
+  if (!state) {
+    const cached = cacheGet(nftCacheKey());
+    if (cached) { state = cached.data; usingCache = true; renderDetail(); }
+  }
+  if (state) {
+    statusEl.textContent = usingCache ? `Showing cached copy from ${relativeTime(cacheGet(nftCacheKey()).savedAt)} — refreshing…` : "Refreshing…";
+  } else {
+    document.getElementById("detail").style.display = "none";
+    statusEl.textContent = "Loading…";
+  }
   statusEl.className = "status";
   try {
     const tokenURI = await fetchTokenURI(collectionID, tokenId);
@@ -119,11 +145,17 @@ async function load() {
     }
 
     state = { collectionName, owner, display, listing, feeMode, feeValue, marketAddr };
+    cacheSet(nftCacheKey(), state);
     renderDetail();
     statusEl.textContent = "";
   } catch (err) {
-    statusEl.textContent = "Failed to load: " + err.message;
-    statusEl.className = "status error";
+    if (state) {
+      statusEl.textContent = "Refresh failed: " + err.message;
+      statusEl.className = "status error";
+    } else {
+      statusEl.textContent = "Failed to load: " + err.message;
+      statusEl.className = "status error";
+    }
   }
 }
 
@@ -271,6 +303,9 @@ initGate((isOwner) => {
   document.getElementById("appView").style.display = isOwner ? "" : "none";
   if (isOwner) load();
 });
+
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) load(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) load(); });
 </script>
 </body>
 </html>

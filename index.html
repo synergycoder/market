@@ -70,6 +70,11 @@
         <span class="spacer"></span>
         <span id="listingsStatus" class="status"></span>
         <button id="cleanupBtn" class="secondary" style="display:none;" title="Remove listings whose seller no longer owns or has approved the token">Clean up stale listings</button>
+        <select id="autoRefreshSelect" title="Auto-refresh (re-scans the chain — off by default to avoid extra load on the shared public RPC)">
+          <option value="0">Auto-refresh: off</option>
+          <option value="60000">Auto-refresh: 1 min</option>
+          <option value="300000">Auto-refresh: 5 min</option>
+        </select>
         <button id="refreshBtn" class="secondary">Refresh</button>
         <div class="view-toggle">
           <button id="viewGridLarge" class="active" title="Large grid">▦</button>
@@ -121,7 +126,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=11"></script>
+<script src="/shared.js?v=12"></script>
 <script src="/wallet.js?v=10"></script>
 <script>
 // ---------------- network wiring ----------------
@@ -130,20 +135,7 @@ initNetworkSelect(document.getElementById("networkSelect"), () => { if (unlocked
 initWalletPill(document.getElementById("walletPillContainer"));
 initFooter(document.getElementById("siteFooter"));
 
-// ---------------- private-preview gate ----------------
-// Every visitor sees the splash view. Only CONFIG.ownerAddress, connected
-// via Adena, sees the real marketplace — see wallet.js's initGate() and
-// CONFIG.ownerAddress's own doc comment for why (private testing, not a
-// security boundary).
 let unlocked = false;
-initGate((isOwner) => {
-  unlocked = isOwner;
-  document.getElementById("splashView").style.display = isOwner ? "none" : "";
-  document.getElementById("appNav").style.display = isOwner ? "" : "none";
-  document.getElementById("appView").style.display = isOwner ? "" : "none";
-  if (isOwner) applyNetwork(); // defer all RPC activity until unlocked — no reason to query the chain for a splash-only visitor
-});
-
 let allListings = []; // enriched, non-stale — sort/filter re-render from this without a refetch
 let staleListings = []; // enriched, hidden from the grid — candidates for cleanupStaleListings()
 
@@ -203,6 +195,8 @@ async function loadFee() {
 
 // ---------------- render: listings ----------------
 
+function listingsCacheKey() { return `listings:${net().chainId}`; }
+
 async function loadListings() {
   const statusEl = document.getElementById("listingsStatus");
   if (!net().marketplaceDeployed) {
@@ -212,9 +206,20 @@ async function loadListings() {
     statusEl.className = "status";
     return;
   }
-  statusEl.textContent = "Loading…";
+  // Show the last known-good result instantly (never blank the grid for
+  // data we already have), then refresh live in the background.
+  const cached = cacheGet(listingsCacheKey());
+  if (cached) {
+    allListings = cached.data.allListings;
+    staleListings = cached.data.staleListings;
+    populateCollectionFilter();
+    renderListings();
+    document.getElementById("cleanupBtn").style.display = staleListings.length ? "" : "none";
+    statusEl.textContent = `Showing ${allListings.length} cached listing${allListings.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refreshing…`;
+  } else {
+    statusEl.textContent = "Loading…";
+  }
   statusEl.className = "status";
-  document.getElementById("cleanupBtn").style.display = "none";
   document.getElementById("cleanupStatus").textContent = "";
   try {
     const listings = await fetchListings();
@@ -224,7 +229,9 @@ async function loadListings() {
     if (listings.length === 0) {
       allListings = [];
       staleListings = [];
+      cacheSet(listingsCacheKey(), { allListings, staleListings });
       renderListings();
+      document.getElementById("cleanupBtn").style.display = "none";
       statusEl.textContent = "No active listings.";
       return;
     }
@@ -246,15 +253,20 @@ async function loadListings() {
     });
     staleListings = enriched.filter((l) => l.stale);
     allListings = enriched.filter((l) => !l.stale);
+    cacheSet(listingsCacheKey(), { allListings, staleListings });
     statusEl.textContent = allListings.length === 0
       ? "No active listings."
       : `${allListings.length} active listing${allListings.length === 1 ? "" : "s"}.`
         + (staleListings.length ? ` (${staleListings.length} hidden — seller no longer owns the token)` : "");
-    document.getElementById("cleanupBtn").style.display = "";
+    document.getElementById("cleanupBtn").style.display = staleListings.length ? "" : "none";
     populateCollectionFilter();
     renderListings();
   } catch (err) {
-    statusEl.textContent = "Failed to load listings: " + err.message;
+    if (cached) {
+      statusEl.textContent = `Showing ${allListings.length} cached listing${allListings.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refresh failed: ${err.message}`;
+    } else {
+      statusEl.textContent = "Failed to load listings: " + err.message;
+    }
     statusEl.className = "status error";
   }
 }
@@ -414,13 +426,34 @@ document.getElementById("viewGridSmall").addEventListener("click", () => setView
 document.getElementById("viewList").addEventListener("click", () => setView("list"));
 document.getElementById("collectionFilter").addEventListener("change", renderListings);
 document.getElementById("sortSelect").addEventListener("change", renderListings);
-document.getElementById("refreshBtn").addEventListener("click", loadListings);
+wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadListings(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadListings(); });
 document.getElementById("cleanupBtn").addEventListener("click", cleanupStaleListings);
 
 if (location.protocol === "file:") {
   document.getElementById("adenaNote").textContent =
     "This page is open via file:// — browser wallet extensions like Adena typically won't inject on file:// pages. Serve it over http://localhost instead.";
 }
+
+// ---------------- private-preview gate ----------------
+// Every visitor sees the splash view. Only CONFIG.ownerAddress, connected
+// via Adena, sees the real marketplace — see wallet.js's initGate() and
+// CONFIG.ownerAddress's own doc comment for why (private testing, not a
+// security boundary). Called last, deliberately — its callback can fire
+// SYNCHRONOUSLY (an already-unlocked owner, or the ?on=1 dev bypass) and
+// immediately calls applyNetwork(), which reaches every function/const
+// defined above. Every `function` declaration is hoisted so call order
+// among those doesn't matter, but a `const`/`let` is not — it sits in its
+// temporal dead zone until execution actually reaches that line. Calling
+// initGate() only after all of those have already been declared is what
+// makes that safe.
+initGate((isOwner) => {
+  unlocked = isOwner;
+  document.getElementById("splashView").style.display = isOwner ? "none" : "";
+  document.getElementById("appNav").style.display = isOwner ? "" : "none";
+  document.getElementById("appView").style.display = isOwner ? "" : "none";
+  if (isOwner) applyNetwork(); // defer all RPC activity until unlocked — no reason to query the chain for a splash-only visitor
+});
 </script>
 </body>
 </html>

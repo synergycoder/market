@@ -277,6 +277,68 @@ async function mapLimit(items, limit, fn) {
 function truncAddr(a) {
   return a && a.length > 14 ? a.slice(0, 8) + "…" + a.slice(-6) : a;
 }
+
+// Accepts either a millisecond timestamp (Date.now()-shaped) or an ISO
+// date string (what the server-built collections cache stamps its
+// generatedAt with) — one implementation instead of the two near-identical
+// ones this project used to carry (collections.html's ISO-only version,
+// my-nfts.html's timestamp-only version).
+function relativeTime(when) {
+  const ms = Date.now() - (typeof when === "number" ? when : new Date(when).getTime());
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.round(min / 60);
+  return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+}
+
+// ---------------- persisted cache (stale-while-revalidate) ----------------
+// A page-load "refresh" used to mean discarding whatever was on screen and
+// starting cold every time — slow, and the direct cause of a real bug: a
+// live scan clears its view immediately, and navigating away mid-scan (or
+// the browser restoring the page from bfcache mid-scan) could leave that
+// cleared state stuck with nothing to repopulate it. The fix is the same
+// one my-nfts.html already used for its own bespoke cache before this was
+// pulled out into a shared helper: persist the last good result per cache
+// key, render it INSTANTLY on load (never blank the screen for data we
+// already have), and only replace it once fresh data actually arrives.
+const CACHE_PREFIX = "gnomarket:cache:";
+
+function cacheGet(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CACHE_PREFIX + key));
+    return parsed && "data" in parsed ? parsed : null;
+  } catch { return null; }
+}
+
+function cacheSet(key, data) {
+  try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ savedAt: Date.now(), data })); }
+  catch { /* storage full, disabled, or private mode — caching is best-effort */ }
+}
+
+// Wires a manual "Refresh" button and an optional auto-refresh <select>
+// (values are milliseconds, "0" = off) to `reloadFn`. Auto-refresh is
+// deliberately opt-in, not on by default, anywhere this drives a live
+// chain read: every open tab polling the shared public RPC adds real load,
+// and this project has personally triggered rate-limiting (403s) against
+// it under nothing worse than our own manual testing — see
+// ~/gno-land-dev-notes.md. Pauses automatically whenever the tab isn't
+// visible (a background tab has no reason to keep polling) and resumes
+// when it becomes visible again, rather than firing a burst of missed
+// intervals.
+function wireRefresh(buttonEl, intervalSelectEl, reloadFn) {
+  buttonEl?.addEventListener("click", () => reloadFn());
+  if (!intervalSelectEl) return;
+  let timer = null;
+  const apply = () => {
+    if (timer) { clearInterval(timer); timer = null; }
+    const ms = Number(intervalSelectEl.value);
+    if (ms > 0 && document.visibilityState === "visible") timer = setInterval(reloadFn, ms);
+  };
+  intervalSelectEl.addEventListener("change", apply);
+  document.addEventListener("visibilitychange", apply);
+  apply();
+}
 function ugnotToGnot(amount) {
   return (amount / 1_000_000).toString();
 }
