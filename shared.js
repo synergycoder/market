@@ -174,6 +174,23 @@ function initTopBanner(container) {
     `Gno.Market is an independent, community-built project. It is not affiliated with, endorsed by, or part of the official gno.land project.`;
 }
 
+// Placeholder cards shown only for a genuinely cold load (nothing cached
+// yet to display instantly) — same grid/card shape as the real content
+// about to replace it, so nothing jumps around once it arrives. Never
+// shown when there's a cache to render immediately instead; see each
+// page's own loadX() for where this is (and isn't) used.
+function skeletonGridHtml(count) {
+  const card = `
+    <div class="skeleton-card">
+      <div class="skeleton-img"></div>
+      <div class="skeleton-body">
+        <div class="skeleton-line"></div>
+        <div class="skeleton-line short"></div>
+      </div>
+    </div>`;
+  return card.repeat(count);
+}
+
 // Re-points the GnoConnect meta tags (docs.gno.land/resources/gnoconnect) so
 // a connected wallet signs against whichever network is currently selected.
 // No-op if the page doesn't declare them.

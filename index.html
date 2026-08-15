@@ -4,6 +4,19 @@
 <meta charset="utf-8" />
 <title>Gno.Market — NFT marketplace</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="A non-custodial NFT marketplace for gno.land. Trade any GRC721 collection — no escrow, no custody." />
+
+<!-- Open Graph / Twitter Card: link previews in Discord, Slack, X, etc. -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Gno.Market" />
+<meta property="og:title" content="Gno.Market — NFT Marketplace" />
+<meta property="og:description" content="A non-custodial NFT marketplace for gno.land. Trade any GRC721 collection — no escrow, no custody." />
+<meta property="og:url" content="https://gno.market/" />
+<meta property="og:image" content="https://gno.market/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Gno.Market — NFT Marketplace" />
+<meta name="twitter:description" content="A non-custodial NFT marketplace for gno.land. Trade any GRC721 collection — no escrow, no custody." />
+<meta name="twitter:image" content="https://gno.market/og-image.png" />
 
 <!-- GnoConnect standard (docs.gno.land/resources/gnoconnect): tells a
      connected wallet which chain to sign against. Updated by shared.js's
@@ -119,7 +132,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=14"></script>
+<script src="/shared.js?v=15"></script>
 <script src="/wallet.js?v=12"></script>
 <script>
 // ---------------- network wiring ----------------
@@ -210,6 +223,7 @@ async function loadListings() {
     document.getElementById("cleanupBtn").style.display = staleListings.length ? "" : "none";
     statusEl.textContent = `Showing ${allListings.length} cached listing${allListings.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refreshing…`;
   } else {
+    document.getElementById("grid").innerHTML = skeletonGridHtml(8);
     statusEl.textContent = "Loading…";
   }
   statusEl.className = "status";

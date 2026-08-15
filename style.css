@@ -80,6 +80,19 @@ nav.topnav {
   justify-content: center;
   flex-wrap: wrap;
 }
+/* Below ~640px the 4 nav links can't fit on one row next to the wordmark
+   and controls — flex-wrap alone left each link stacking on its own full
+   line (nav ballooning tall) while header's align-items:center then
+   centered the much-shorter logo against that tall block, making it look
+   like the nav rendered ABOVE the logo instead of stacking cleanly below
+   it. Stacking the header itself into 3 explicit rows (logo, nav,
+   controls) avoids the whole cross-axis-centering-against-a-tall-sibling
+   problem, and letting nav wrap 2-per-row instead of 1 keeps it compact. */
+@media (max-width: 640px) {
+  header { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+  nav.topnav { justify-content: center; }
+  header > div { justify-content: center; }
+}
 nav.topnav a {
   display: inline-block;
   padding: 0.5rem 0.9rem;
@@ -189,6 +202,33 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
 }
 .card .noimg { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.8rem; }
 .card .body { padding: 0.7rem 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.35rem; }
+
+/* Cold-start placeholder for a grid that's about to fill in — same shape
+   as a real .card (image square + a couple of text lines) so the layout
+   doesn't jump once real cards replace these, shown only while there's
+   nothing cached yet to display instantly instead. */
+.skeleton-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.skeleton-card .skeleton-img { width: 100%; aspect-ratio: 1 / 1; }
+.skeleton-card .skeleton-body { padding: 0.7rem 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.skeleton-card .skeleton-line { height: 0.7rem; border-radius: 4px; }
+.skeleton-card .skeleton-line.short { width: 55%; }
+.skeleton-line, .skeleton-img {
+  background: linear-gradient(90deg, var(--border) 25%, var(--panel) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line, .skeleton-img { animation: none; }
+}
 .card .name { font-weight: 600; font-size: 0.9rem; }
 .swatch {
   display: inline-block;
@@ -233,6 +273,14 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
 .status.error { color: var(--danger); }
 .status.ok { color: var(--good); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+/* A full realm path (gno.land/r/g1.../nftmarketv2) is one long unbroken
+   string with no spaces — inline text like #pkgpathLabel isn't inside a
+   scrollable container the way the collections table's .mono cells are,
+   so on a narrow screen it just pushed the whole page wider instead of
+   wrapping. Scoped to the id, not .mono itself, so the table's own cells
+   (which scroll their own container instead) keep their current
+   behavior. */
+#pkgpathLabel { word-break: break-all; }
 details summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
 .row { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap; }
 .row .field { flex: 1; min-width: 140px; }

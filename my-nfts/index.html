@@ -4,6 +4,19 @@
 <meta charset="utf-8" />
 <title>Gno.Market — My NFTs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="See everything your wallet holds across every known gno.land NFT collection, and list or transfer directly." />
+
+<!-- Open Graph / Twitter Card: link previews in Discord, Slack, X, etc. -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Gno.Market" />
+<meta property="og:title" content="My NFTs — Gno.Market" />
+<meta property="og:description" content="See everything your wallet holds across every known gno.land NFT collection, and list or transfer directly." />
+<meta property="og:url" content="https://gno.market/my-nfts/" />
+<meta property="og:image" content="https://gno.market/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="My NFTs — Gno.Market" />
+<meta name="twitter:description" content="See everything your wallet holds across every known gno.land NFT collection, and list or transfer directly." />
+<meta name="twitter:image" content="https://gno.market/og-image.png" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="stylesheet" href="/style.css" />
 </head>
@@ -42,7 +55,7 @@
       <div id="portfolioSummary" class="status" style="display:none;"></div>
       <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
         <div id="scanStatus" class="status" style="margin:0;"></div>
-        <div style="display:flex; align-items:center; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
           <select id="autoRefreshSelect" title="Auto-refresh (re-scans the chain — off by default to avoid extra load on the shared public RPC)">
             <option value="0">Auto-refresh: off</option>
             <option value="60000">Auto-refresh: 1 min</option>
@@ -60,7 +73,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=14"></script>
+<script src="/shared.js?v=15"></script>
 <script src="/wallet.js?v=12"></script>
 <script>
 initTopBanner(document.getElementById("topBanner"));
@@ -434,7 +447,7 @@ async function loadMyNfts() {
   if (hasCache) {
     renderEntries(cached.entries);
   } else {
-    grid.innerHTML = "";
+    grid.innerHTML = skeletonGridHtml(6);
   }
   const setScanStatus = (msg, cls = "status") => { statusEl.innerHTML = msg; statusEl.className = cls; };
   setScanStatus(hasCache
@@ -518,6 +531,7 @@ async function loadMyNfts() {
         // Cold start (nothing cached yet worth preserving on screen) —
         // reveal cards as they're found instead of waiting for the whole
         // scan to finish.
+        if (found === 1) grid.innerHTML = ""; // first real card — clear the skeleton placeholders
         grid.insertAdjacentHTML("beforeend", renderEntry(entry));
         wireCardActions();
         resolveUnresolvedCardActions();

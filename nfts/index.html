@@ -4,6 +4,19 @@
 <meta charset="utf-8" />
 <title>Gno.Market — NFTs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="View every token in any GRC721 collection on gno.land, with trait filters and rarity ranking." />
+
+<!-- Open Graph / Twitter Card: link previews in Discord, Slack, X, etc. -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Gno.Market" />
+<meta property="og:title" content="Browse NFTs — Gno.Market" />
+<meta property="og:description" content="View every token in any GRC721 collection on gno.land, with trait filters and rarity ranking." />
+<meta property="og:url" content="https://gno.market/nfts/" />
+<meta property="og:image" content="https://gno.market/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Browse NFTs — Gno.Market" />
+<meta name="twitter:description" content="View every token in any GRC721 collection on gno.land, with trait filters and rarity ranking." />
+<meta name="twitter:image" content="https://gno.market/og-image.png" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="stylesheet" href="/style.css" />
 </head>
@@ -31,6 +44,11 @@
   <section>
     <h2>NFTs</h2>
     <div class="panel">
+      <p class="status">
+        Browse every token in one gno.land NFT collection — trait filters, rarity ranking, and favorites
+        included. Paste a collection's realm path below, or get there via "View NFTs" on the
+        <a href="/collections/">Collections</a> page.
+      </p>
       <div class="row">
         <div class="field" style="flex:3;">
           <label>Collection path</label>
@@ -42,7 +60,7 @@
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
         <p class="status" id="summaryStatus" style="margin:0;"></p>
-        <div style="display:flex; align-items:center; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
           <label style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
             <input type="checkbox" id="favoritesOnlyCheckbox" /> Favorites only
           </label>
@@ -97,7 +115,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=14"></script>
+<script src="/shared.js?v=15"></script>
 <script src="/wallet.js?v=12"></script>
 <script>
 initTopBanner(document.getElementById("topBanner"));
@@ -306,7 +324,7 @@ async function loadTokens() {
     statusEl.textContent = `Showing ${cached.data.length} cached token${cached.data.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refreshing…`;
   } else {
     allTokens = [];
-    grid.innerHTML = "";
+    grid.innerHTML = skeletonGridHtml(8);
     document.getElementById("traitFilters").style.display = "none";
     statusEl.textContent = "";
   }
@@ -340,7 +358,10 @@ async function loadTokens() {
         // waiting for the whole collection to finish probing. When
         // there's a cache, the old grid stays put until the authoritative
         // re-render below, rather than mixing old and partial-new cards.
-        if (!hasCache) grid.insertAdjacentHTML("beforeend", tokenCardHtml(path, enriched));
+        if (!hasCache) {
+          if (found === 1) grid.innerHTML = ""; // first real card — clear the skeleton placeholders
+          grid.insertAdjacentHTML("beforeend", tokenCardHtml(path, enriched));
+        }
       }
     );
     if (myGeneration !== loadGeneration) return;

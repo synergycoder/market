@@ -4,6 +4,24 @@
 <meta charset="utf-8" />
 <title>Gno.Market — NFT</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="View and trade an individual NFT on Gno.Market, a non-custodial marketplace for gno.land." />
+
+<!-- Open Graph / Twitter Card: link previews in Discord, Slack, X, etc.
+     This page is per-item (its real content depends on ?collection=/&tid=
+     query params), but this is a static site with no server-side
+     rendering, so these tags can't reflect a specific token's own name or
+     image the way a real link preview ideally would — a generic but
+     honest description of what this page IS beats a fake per-item value
+     no crawler will ever see filled in correctly. -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Gno.Market" />
+<meta property="og:title" content="Gno.Market — NFT" />
+<meta property="og:description" content="View and trade an individual NFT on Gno.Market, a non-custodial marketplace for gno.land." />
+<meta property="og:image" content="https://gno.market/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Gno.Market — NFT" />
+<meta name="twitter:description" content="View and trade an individual NFT on Gno.Market, a non-custodial marketplace for gno.land." />
+<meta name="twitter:image" content="https://gno.market/og-image.png" />
 <meta name="gnoconnect:rpc" content="127.0.0.1:26658" />
 <meta name="gnoconnect:chainid" content="dev" />
 <meta name="gnoconnect:txdomains" content="auto" />
@@ -40,7 +58,7 @@
 
   <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
     <div id="loadStatus" class="status" style="margin:0;">Loading…</div>
-    <div style="display:flex; align-items:center; gap:0.5rem;">
+    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
       <select id="autoRefreshSelect" title="Auto-refresh (re-reads this item from the chain — off by default to avoid extra load on the shared public RPC)">
         <option value="0">Auto-refresh: off</option>
         <option value="30000">Auto-refresh: 30s</option>
@@ -73,7 +91,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=14"></script>
+<script src="/shared.js?v=15"></script>
 <script src="/wallet.js?v=12"></script>
 <script>
 initNetworkSelect(document.getElementById("networkSelect"), () => { updateGnoConnectMeta(); load(); });
