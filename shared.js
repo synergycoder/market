@@ -316,6 +316,29 @@ function cacheSet(key, data) {
   catch { /* storage full, disabled, or private mode — caching is best-effort */ }
 }
 
+// ---------------- favorites (watchlist) ----------------
+// Two independent sets ("collections", "nfts"), persisted per network —
+// favoriting something on testnet has no reason to show up favorited on
+// betanet, a completely different set of deployed collections. Collections
+// are keyed by their real path; NFTs by "collectionPath::tokenId" (the
+// same shape myTokenCardHtml's own data-key already uses).
+function favoritesKey(kind) { return `favorites:${kind}:${net().chainId}`; }
+
+function loadFavorites(kind) {
+  const cached = cacheGet(favoritesKey(kind));
+  return new Set(Array.isArray(cached?.data) ? cached.data : []);
+}
+function saveFavorites(kind, set) { cacheSet(favoritesKey(kind), [...set]); }
+function isFavorite(kind, id) { return loadFavorites(kind).has(id); }
+// Returns the new state (true = now favorited) so a caller can update a
+// toggle's appearance without a second read.
+function toggleFavorite(kind, id) {
+  const set = loadFavorites(kind);
+  if (set.has(id)) set.delete(id); else set.add(id);
+  saveFavorites(kind, set);
+  return set.has(id);
+}
+
 // Wires a manual "Refresh" button and an optional auto-refresh <select>
 // (values are milliseconds, "0" = off) to `reloadFn`. Auto-refresh is
 // deliberately opt-in, not on by default, anywhere this drives a live

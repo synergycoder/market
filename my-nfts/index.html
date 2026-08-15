@@ -41,6 +41,7 @@
         <a href="/collections/">Collections</a> page first.
       </p>
       <div id="connectPrompt" class="status" style="display:none;">Connect your wallet above to see what you hold.</div>
+      <div id="portfolioSummary" class="status" style="display:none;"></div>
       <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
         <div id="scanStatus" class="status" style="margin:0;"></div>
         <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -61,7 +62,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=12"></script>
+<script src="/shared.js?v=13"></script>
 <script src="/wallet.js?v=11"></script>
 <script>
 initFooter(document.getElementById("siteFooter"));
@@ -80,6 +81,7 @@ function applyNetwork() {
   document.getElementById("scanStatus").textContent = "";
   if (!walletAddress) {
     document.getElementById("grid").innerHTML = "";
+    document.getElementById("portfolioSummary").style.display = "none";
     document.getElementById("connectPrompt").style.display = "block";
     return;
   }
@@ -402,6 +404,25 @@ function renderEntries(entries) {
   document.getElementById("grid").innerHTML = entries.map(renderEntry).join("");
   wireCardActions();
   resolveUnresolvedCardActions();
+  renderPortfolioSummary(entries);
+}
+
+// Deliberately NOT a "portfolio value" in the usual sense — this app has
+// no price oracle and no floor-price tracking, so an unlisted token has
+// no price signal at all, not even an estimate. The only honest number
+// here is the total of what's currently listed; everything else is
+// disclosed as a count with no value attached, rather than inventing one.
+function renderPortfolioSummary(entries) {
+  const el = document.getElementById("portfolioSummary");
+  if (entries.length === 0) { el.style.display = "none"; return; }
+  const listed = entries.filter((e) => e.listing);
+  const totalUgnot = listed.reduce((sum, e) => sum + e.listing.price, 0);
+  const unlistedCount = entries.length - listed.length;
+  el.style.display = "block";
+  el.textContent = listed.length === 0
+    ? `${entries.length} token${entries.length === 1 ? "" : "s"} held, none currently listed — no price signal available for any of them.`
+    : `${listed.length} listed token${listed.length === 1 ? "" : "s"} worth ${ugnotToGnot(totalUgnot)} GNOT total` +
+      (unlistedCount > 0 ? ` · ${unlistedCount} more held but not listed (no price signal available for those)` : "") + ".";
 }
 
 async function loadMyNfts() {

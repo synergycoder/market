@@ -155,7 +155,15 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
+.card-fav-star {
+  position: absolute; top: 0.4rem; right: 0.4rem; z-index: 1;
+  background: rgba(15, 17, 21, 0.55); border-radius: 50%;
+  width: 1.8rem; height: 1.8rem; display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; color: #fff;
+}
+.card-fav-star.active { color: var(--accent); }
 .card a.card-link, a.card-link { color: inherit; text-decoration: none; display: contents; }
 .card img, .card .noimg {
   width: 100%;
@@ -217,6 +225,12 @@ table.simple th, table.simple td { text-align: left; padding: 0.35rem 0.5rem; bo
 table.simple th { color: var(--muted); font-weight: 500; }
 table.simple tr.clickable { cursor: pointer; }
 table.simple tr.clickable:hover { background: var(--bg); }
+.fav-star {
+  background: none; border: none; cursor: pointer; padding: 0; font-size: 1.1rem;
+  line-height: 1; color: var(--muted);
+}
+.fav-star.active { color: var(--accent); }
+.fav-star:hover { color: var(--accent); }
 .collection-thumb {
   width: 36px; height: 36px; border-radius: 6px; object-fit: cover; display: block;
   background: var(--bg); border: 1px solid var(--border);

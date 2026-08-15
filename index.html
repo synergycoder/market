@@ -60,6 +60,7 @@
     <h2>Listings</h2>
     <div class="panel">
       <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search listings…" style="min-width:12rem;" />
         <select id="collectionFilter"><option value="">All collections</option></select>
         <select id="sortSelect">
           <option value="date-desc">Newest first</option>
@@ -67,6 +68,9 @@
           <option value="price-asc">Price: low to high</option>
           <option value="price-desc">Price: high to low</option>
         </select>
+        <label style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
+          <input type="checkbox" id="favoritesOnlyCheckbox" /> Favorites only
+        </label>
         <span class="spacer"></span>
         <span id="listingsStatus" class="status"></span>
         <button id="cleanupBtn" class="secondary" style="display:none;" title="Remove listings whose seller no longer owns or has approved the token">Clean up stale listings</button>
@@ -126,7 +130,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=12"></script>
+<script src="/shared.js?v=13"></script>
 <script src="/wallet.js?v=11"></script>
 <script>
 // ---------------- network wiring ----------------
@@ -337,7 +341,16 @@ function populateCollectionFilter() {
 function sortedFilteredListings() {
   const filterId = document.getElementById("collectionFilter").value;
   const sort = document.getElementById("sortSelect").value;
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const favOnly = document.getElementById("favoritesOnlyCheckbox").checked;
   let items = filterId ? allListings.filter((l) => l.collectionID === filterId) : allListings.slice();
+  if (favOnly) items = items.filter((l) => isFavorite("nfts", favoriteNftKey(l)));
+  if (q) {
+    items = items.filter((l) => {
+      const hay = `${l.display?.name || ""} ${l.info?.name || ""} ${l.collectionID}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }
   const cmp = {
     "date-desc": (a, b) => b.order - a.order,
     "date-asc": (a, b) => a.order - b.order,
@@ -368,12 +381,31 @@ function renderListings() {
     grid.className = currentView === "grid-small" ? "grid grid-compact" : "grid";
     listWrap.style.display = "none";
     grid.innerHTML = items.map(cardHtml).join("");
+    grid.querySelectorAll(".card-fav-star").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault(); // the star sits inside the card's own <a> — block its navigation
+        e.stopPropagation();
+        const now = toggleFavorite("nfts", btn.dataset.favKey);
+        btn.textContent = now ? "★" : "☆";
+        btn.classList.toggle("active", now);
+        btn.title = now ? "Remove from favorites" : "Add to favorites";
+        if (document.getElementById("favoritesOnlyCheckbox").checked) renderListings();
+      });
+    });
   }
 }
 
 function itemHref(l) {
   return `/nft/?collection=${encodeURIComponent(l.collectionID)}&tid=${encodeURIComponent(l.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
 }
+
+// collectionID here is already whatever the marketplace itself knows this
+// listing by (a satellite adapter's path, when one fronts the real
+// collection) — the same identity marketplaceCollectionId() resolves to
+// from a real path elsewhere, so using it directly as the favorite key
+// keeps favoriting a token from here and from /nfts/ (which only has the
+// real path) landing on the same key either way.
+function favoriteNftKey(l) { return `${l.collectionID}::${l.tokenId}`; }
 
 function cardHtml(l) {
   const tokenName = l.display?.name || `Token ${l.tokenId}`;
@@ -384,9 +416,11 @@ function cardHtml(l) {
   const swatch = l.display?.backgroundColor
     ? `<span class="swatch" style="background:#${escapeHtml(l.display.backgroundColor)}" title="Background #${escapeHtml(l.display.backgroundColor)}"></span>`
     : "";
+  const favored = isFavorite("nfts", favoriteNftKey(l));
   return `
     <a class="card-link" href="${itemHref(l)}">
       <div class="card">
+        <button type="button" class="fav-star card-fav-star${favored ? " active" : ""}" data-fav-key="${escapeHtml(favoriteNftKey(l))}" title="${favored ? "Remove from favorites" : "Add to favorites"}">${favored ? "★" : "☆"}</button>
         ${imgHtml}
         <div class="body">
           <div class="name">${escapeHtml(tokenName)}${swatch}</div>
@@ -426,6 +460,8 @@ document.getElementById("viewGridSmall").addEventListener("click", () => setView
 document.getElementById("viewList").addEventListener("click", () => setView("list"));
 document.getElementById("collectionFilter").addEventListener("change", renderListings);
 document.getElementById("sortSelect").addEventListener("change", renderListings);
+document.getElementById("searchInput").addEventListener("input", renderListings);
+document.getElementById("favoritesOnlyCheckbox").addEventListener("change", renderListings);
 wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadListings(); });
 window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadListings(); });
 document.getElementById("cleanupBtn").addEventListener("click", cleanupStaleListings);

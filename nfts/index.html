@@ -45,6 +45,9 @@
       <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
         <p class="status" id="summaryStatus" style="margin:0;"></p>
         <div style="display:flex; align-items:center; gap:0.5rem;">
+          <label style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
+            <input type="checkbox" id="favoritesOnlyCheckbox" /> Favorites only
+          </label>
           <select id="autoRefreshSelect" title="Auto-refresh (re-scans the chain — off by default to avoid extra load on the shared public RPC)">
             <option value="0">Auto-refresh: off</option>
             <option value="60000">Auto-refresh: 1 min</option>
@@ -87,6 +90,7 @@
 
   <section>
     <div id="tokensStatus" class="status"></div>
+    <div id="traitFilters" class="toolbar" style="display:none;"></div>
     <div id="grid" class="grid"></div>
   </section>
 </div>
@@ -95,7 +99,7 @@
 
 <footer class="site-footer" id="siteFooter"></footer>
 
-<script src="/shared.js?v=12"></script>
+<script src="/shared.js?v=13"></script>
 <script src="/wallet.js?v=11"></script>
 <script>
 initFooter(document.getElementById("siteFooter"));
@@ -108,9 +112,14 @@ initNetworkSelect(document.getElementById("networkSelect"), () => {
   // data as if it were current. Clear back to the empty state instead.
   document.getElementById("collectionInput").value = "";
   document.getElementById("grid").innerHTML = "";
+  document.getElementById("traitFilters").style.display = "none";
+  document.getElementById("traitFilters").innerHTML = "";
   document.getElementById("summaryStatus").textContent = "";
   document.getElementById("summaryStatus").className = "status";
   document.getElementById("tokensStatus").textContent = "";
+  allTokens = [];
+  activeTraitFilters = {};
+  currentCollectionPath = "";
 });
 initWalletPill(document.getElementById("walletPillContainer"));
 
@@ -118,7 +127,11 @@ let loadGeneration = 0;
 
 function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
 
-function tokenCardHtml(collectionPath, t) {
+// rank/total are only known once the WHOLE collection has been scanned
+// (rarity is relative to every other token's traits) — undefined during
+// the cold-start progressive reveal, where each card renders the moment
+// its own probe resolves, well before the full set exists.
+function tokenCardHtml(collectionPath, t, rank, total) {
   const tokenName = t.display?.name || `Token ${t.tokenId}`;
   const imgHtml = t.display?.image
     ? `<img src="${escapeHtml(t.display.image)}" alt="${escapeHtml(tokenName)}" />`
@@ -129,24 +142,135 @@ function tokenCardHtml(collectionPath, t) {
   const descHtml = t.display?.description
     ? `<div class="meta" title="${escapeHtml(t.display.description)}">${escapeHtml(truncate(t.display.description, 90))}</div>`
     : "";
+  const rarityHtml = rank != null
+    ? `<div class="meta">Rarity #${rank}/${total}</div>`
+    : "";
   // Resolve to a satellite adapter's collectionID when one fronts this
   // path (see SATELLITE_ADAPTERS in shared.js) — covers browsing here by
   // typing a real path directly, not just arriving via a Collections page
-  // link that already resolved it.
-  const href = `/nft/?collection=${encodeURIComponent(marketplaceCollectionId(collectionPath))}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
+  // link that already resolved it. Also what favoriting keys on, so a
+  // favorite set from here and from the marketplace listings page (which
+  // only ever sees this same resolved ID) land on the same key.
+  const mcid = marketplaceCollectionId(collectionPath);
+  const href = `/nft/?collection=${encodeURIComponent(mcid)}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
+  const favKey = `${mcid}::${t.tokenId}`;
+  const favored = isFavorite("nfts", favKey);
   return `
     <a class="card-link" href="${href}">
       <div class="card" data-key="${escapeAttr(t.tokenId)}">
+        <button type="button" class="fav-star card-fav-star${favored ? " active" : ""}" data-fav-key="${escapeAttr(favKey)}" title="${favored ? "Remove from favorites" : "Add to favorites"}">${favored ? "★" : "☆"}</button>
         ${imgHtml}
         <div class="body">
           <div class="name">${escapeHtml(tokenName)}${swatch}</div>
           <div class="meta">${escapeHtml(collectionPath)}</div>
           ${descHtml}
+          ${rarityHtml}
           ${attributesHtml(t.display?.attributes)}
           <div class="meta">#${escapeHtml(t.tokenId)} &middot; owner ${truncAddr(t.owner)}</div>
         </div>
       </div>
     </a>`;
+}
+
+// Standard trait-rarity scoring (the same method rarity.tools/similar
+// sites use): each of a token's traits contributes total/frequency of
+// that exact trait-type+value pair, so a trait only 1 of 40 tokens has
+// contributes far more than one 30 of 40 share — sum across all of a
+// token's traits, then rank descending (rank 1 = rarest). Needs the
+// WHOLE collection to mean anything, so this only ever runs against a
+// complete token list, never the partial set mid cold-scan.
+function computeRarityRanks(tokens) {
+  const total = tokens.length;
+  const freq = new Map();
+  for (const t of tokens) {
+    for (const attr of t.display?.attributes || []) {
+      const key = `${attr.traitType}|${attr.value}`;
+      freq.set(key, (freq.get(key) || 0) + 1);
+    }
+  }
+  const scored = tokens.map((t) => {
+    let score = 0;
+    for (const attr of t.display?.attributes || []) {
+      const key = `${attr.traitType}|${attr.value}`;
+      score += total / (freq.get(key) || 1);
+    }
+    return { tokenId: t.tokenId, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const rankByTokenId = new Map();
+  scored.forEach((s, i) => rankByTokenId.set(s.tokenId, i + 1));
+  return rankByTokenId;
+}
+
+// traitType -> Set(values) present anywhere in the collection, for
+// building the filter panel's dropdowns.
+function buildTraitFacets(tokens) {
+  const facets = new Map();
+  for (const t of tokens) {
+    for (const attr of t.display?.attributes || []) {
+      if (!facets.has(attr.traitType)) facets.set(attr.traitType, new Set());
+      facets.get(attr.traitType).add(attr.value);
+    }
+  }
+  return facets;
+}
+
+let allTokens = []; // full, unfiltered set for the currently loaded collection — filter/rarity re-render from this without a refetch
+let currentCollectionPath = "";
+let activeTraitFilters = {}; // traitType -> selected value, or absent/"" for "All"
+
+function renderTraitFilterPanel(tokens) {
+  const el = document.getElementById("traitFilters");
+  const facets = buildTraitFacets(tokens);
+  if (facets.size === 0) { el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "flex";
+  el.innerHTML = [...facets.entries()].map(([traitType, values]) => {
+    const selected = activeTraitFilters[traitType] || "";
+    const options = [`<option value="">${escapeHtml(traitType)}: All</option>`]
+      .concat([...values].sort().map((v) => `<option value="${escapeAttr(v)}"${v === selected ? " selected" : ""}>${escapeHtml(v)}</option>`));
+    return `<select data-trait-type="${escapeAttr(traitType)}">${options.join("")}</select>`;
+  }).join("");
+  el.querySelectorAll("select").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const t = sel.dataset.traitType;
+      if (sel.value) activeTraitFilters[t] = sel.value; else delete activeTraitFilters[t];
+      renderTokenGrid();
+    });
+  });
+}
+
+function passesTraitFilters(t) {
+  if (document.getElementById("favoritesOnlyCheckbox").checked) {
+    const favKey = `${marketplaceCollectionId(currentCollectionPath)}::${t.tokenId}`;
+    if (!isFavorite("nfts", favKey)) return false;
+  }
+  const attrs = t.display?.attributes || [];
+  for (const [traitType, value] of Object.entries(activeTraitFilters)) {
+    if (!attrs.some((a) => a.traitType === traitType && a.value === value)) return false;
+  }
+  return true;
+}
+
+// The one place that actually writes to #grid once a collection's full
+// token list is known — computes rarity + facets fresh each time (cheap
+// relative to everything else on this page) and applies whatever trait
+// filters are currently selected.
+function renderTokenGrid() {
+  const rankByTokenId = computeRarityRanks(allTokens);
+  renderTraitFilterPanel(allTokens);
+  const visible = allTokens.filter(passesTraitFilters);
+  const grid = document.getElementById("grid");
+  grid.innerHTML = visible.map((t) => tokenCardHtml(currentCollectionPath, t, rankByTokenId.get(t.tokenId), allTokens.length)).join("");
+  grid.querySelectorAll(".card-fav-star").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const now = toggleFavorite("nfts", btn.dataset.favKey);
+      btn.textContent = now ? "★" : "☆";
+      btn.classList.toggle("active", now);
+      btn.title = now ? "Remove from favorites" : "Add to favorites";
+    });
+  });
 }
 
 function tokensCacheKey(path) { return `tokens:${net().chainId}:${path}`; }
@@ -167,6 +291,9 @@ async function loadTokens() {
     return;
   }
 
+  if (path !== currentCollectionPath) activeTraitFilters = {}; // a different collection's traits mean nothing here
+  currentCollectionPath = path;
+
   // Show whatever's cached for this exact collection instantly — never
   // blank the grid just because a refresh (manual, auto, or a fresh page
   // load) started. Only replaced once the live scan below has a complete,
@@ -175,10 +302,13 @@ async function loadTokens() {
   const cached = cacheGet(cacheKey);
   const hasCache = !!cached?.data.length;
   if (hasCache) {
-    grid.innerHTML = cached.data.map((t) => tokenCardHtml(path, t)).join("");
+    allTokens = cached.data;
+    renderTokenGrid();
     statusEl.textContent = `Showing ${cached.data.length} cached token${cached.data.length === 1 ? "" : "s"} from ${relativeTime(cached.savedAt)} — refreshing…`;
   } else {
+    allTokens = [];
     grid.innerHTML = "";
+    document.getElementById("traitFilters").style.display = "none";
     statusEl.textContent = "";
   }
 
@@ -218,8 +348,10 @@ async function loadTokens() {
 
     // Authoritative full re-render either way — catches a token sold,
     // transferred, or burned since the cache was written, not just newly
-    // found ones.
-    grid.innerHTML = freshTokens.map((t) => tokenCardHtml(path, t)).join("");
+    // found ones. Also the first point rarity/trait filters have a
+    // complete set to work from.
+    allTokens = freshTokens;
+    renderTokenGrid();
     cacheSet(cacheKey, freshTokens);
     statusEl.textContent = tokens.length === 0
       ? "No tokens found (or this collection doesn't expose OwnerOf as a plain package-level function)."
@@ -244,6 +376,7 @@ document.getElementById("collectionInput").addEventListener("keydown", (e) => {
 });
 wireRefresh(document.getElementById("refreshBtn"), document.getElementById("autoRefreshSelect"), () => { if (unlocked) loadTokens(); });
 window.addEventListener("pageshow", (e) => { if (e.persisted && unlocked) loadTokens(); });
+document.getElementById("favoritesOnlyCheckbox").addEventListener("change", () => { if (allTokens.length) renderTokenGrid(); });
 
 // Arrive pre-filled from /collections/'s "View NFTs" link.
 const params = new URLSearchParams(location.search);
