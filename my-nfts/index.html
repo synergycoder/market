@@ -62,7 +62,7 @@
 <footer class="site-footer" id="siteFooter"></footer>
 
 <script src="/shared.js?v=12"></script>
-<script src="/wallet.js?v=10"></script>
+<script src="/wallet.js?v=11"></script>
 <script>
 initFooter(document.getElementById("siteFooter"));
 initWalletPill(document.getElementById("walletPillContainer"));
@@ -183,7 +183,7 @@ function myTokenCardHtml(collectionPath, collectionName, t, listing) {
   const href = `/nft/?collection=${encodeURIComponent(mcid)}&tid=${encodeURIComponent(t.tokenId)}&network=${encodeURIComponent(currentNetKey)}`;
   const needsApprovalCheck = !listing ? ` data-needs-approval-check="1"` : "";
   return `
-    <div class="card" data-key="${escapeAttr(collectionPath)}::${escapeAttr(t.tokenId)}" data-collection-id="${escapeAttr(mcid)}" data-token-id="${escapeAttr(t.tokenId)}"${needsApprovalCheck}>
+    <div class="card" data-key="${escapeAttr(collectionPath)}::${escapeAttr(t.tokenId)}" data-collection-id="${escapeAttr(mcid)}" data-real-path="${escapeAttr(collectionPath)}" data-token-id="${escapeAttr(t.tokenId)}"${needsApprovalCheck}>
       <a class="card-link" href="${href}">
         ${imgHtml}
         <div class="body">
@@ -194,7 +194,42 @@ function myTokenCardHtml(collectionPath, collectionName, t, listing) {
         </div>
       </a>
       ${cardActionsHtml(listing)}
+      ${transferBlockHtml(!!listing)}
     </div>`;
+}
+
+// Always available for any card here (everything shown is something the
+// wallet owns) — separate from cardActionsHtml's listed/unlisted states,
+// since a direct transfer bypasses the marketplace entirely and applies
+// either way. Collapsed behind a toggle rather than an always-visible
+// form, mainly to keep an accidental click away from a text input that
+// sends real tokens.
+function transferBlockHtml(isListed) {
+  const warning = isListed
+    ? `<p class="status">This token is listed — transferring it directly will leave that listing stale (the marketplace has no way to see a transfer that didn't go through it). <a href="/" target="_blank" rel="noopener">Clean up stale listings</a> removes it afterward.</p>`
+    : "";
+  return `
+    <div class="transfer-block">
+      <button type="button" class="secondary transfer-toggle-btn">Transfer to another wallet</button>
+      <div class="transfer-form" style="display:none;">
+        ${warning}
+        <div class="row-inline">
+          <input type="text" class="transfer-address" placeholder="g1... recipient address" />
+          <button type="button" class="transfer-send-btn">Send</button>
+          <button type="button" class="secondary transfer-cancel-btn">Cancel</button>
+        </div>
+        <p class="status transfer-status"></p>
+      </div>
+    </div>`;
+}
+
+// Loose sanity check, not real validation — catches an obviously wrong
+// paste (empty, wrong prefix, an address copied with trailing whitespace
+// or truncated) before spending a click round-tripping to Adena over it.
+// The real check happens on-chain: TransferFrom itself rejects anything
+// that isn't a real, distinct address.
+function looksLikeGnoAddress(s) {
+  return /^g1[a-z0-9]{35,42}$/.test(s.trim());
 }
 
 // Re-checks this one card's listing status and swaps its actions block in
@@ -279,7 +314,68 @@ function wireCardActions() {
         else { setStatus(res.message, "status error"); cancelBtn.disabled = false; }
       });
     }
+
+    wireTransferBlock(card);
   });
+}
+
+// Direct wallet-to-wallet transfer — separate from the List/Cancel wiring
+// above since it bypasses the marketplace entirely (see wallet.js's
+// transferToken doc comment) and applies to a card in ANY state, listed
+// or not. A successful transfer means the token just left this wallet, so
+// unlike list/cancel (which patch just that one card) this re-runs the
+// whole scan: the accurate response to "what do I hold now" is a fresh
+// scan, not a guess about what else might also need updating.
+function wireTransferBlock(card) {
+  // Guarded separately from the card's own data-wired flag: unlike
+  // .card-actions (replaced wholesale via outerHTML after list/cancel,
+  // which is what data-wired protects), the transfer block's DOM nodes
+  // are never recreated — only .card-actions is swapped out — so
+  // wireCardActions() re-running after that swap must not re-attach a
+  // second set of listeners to these same still-existing elements.
+  if (card.dataset.transferWired) return;
+  card.dataset.transferWired = "1";
+
+  const toggleBtn = card.querySelector(".transfer-toggle-btn");
+  const form = card.querySelector(".transfer-form");
+  const addressInput = card.querySelector(".transfer-address");
+  const sendBtn = card.querySelector(".transfer-send-btn");
+  const cancelBtn = card.querySelector(".transfer-cancel-btn");
+  const statusEl = card.querySelector(".transfer-status");
+  if (!toggleBtn || !form || !addressInput || !sendBtn || !cancelBtn) return;
+
+  const realPath = card.dataset.realPath;
+  const tokenId = card.dataset.tokenId;
+  const setStatus = (msg, cls = "status") => { statusEl.textContent = msg; statusEl.className = cls + " transfer-status"; };
+
+  toggleBtn.addEventListener("click", () => {
+    form.style.display = "";
+    toggleBtn.style.display = "none";
+    addressInput.focus();
+  });
+  cancelBtn.addEventListener("click", () => {
+    form.style.display = "none";
+    toggleBtn.style.display = "";
+    addressInput.value = "";
+    setStatus("");
+  });
+
+  const submitTransfer = async () => {
+    const to = addressInput.value.trim();
+    if (!looksLikeGnoAddress(to)) { setStatus("Enter a valid g1… address first.", "status error"); return; }
+    if (to === walletAddress) { setStatus("That's your own address.", "status error"); return; }
+    sendBtn.disabled = true;
+    const res = await transferToken(realPath, walletAddress, to, tokenId, (msg) => setStatus(msg));
+    if (res.ok) {
+      setStatus("Sent.", "status ok");
+      setTimeout(() => loadMyNfts(), 1200); // token just left this wallet — a full re-scan is the correct response, not a per-card patch
+    } else {
+      setStatus(res.message, "status error");
+      sendBtn.disabled = false;
+    }
+  };
+  sendBtn.addEventListener("click", submitTransfer);
+  addressInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitTransfer(); });
 }
 
 // A full wallet scan means one BalanceOf per known collection plus token

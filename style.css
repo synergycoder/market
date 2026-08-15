@@ -192,6 +192,11 @@ label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 
 .card .card-actions .row-inline { display: flex; gap: 0.4rem; }
 .card .card-actions button { white-space: nowrap; }
 .card .card-actions .trade-status { margin: 0; min-height: 1.1em; }
+.card .transfer-block { padding: 0 0.8rem 0.8rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.card .transfer-block .row-inline { display: flex; gap: 0.4rem; }
+.card .transfer-block button { white-space: nowrap; }
+.card .transfer-block input.transfer-address { flex: 1; min-width: 0; }
+.card .transfer-block .transfer-status { margin: 0; min-height: 1.1em; }
 /* Price input's unit stays visible once typing starts, unlike a
    placeholder that vanishes the moment there's a value. */
 .amount-input { position: relative; flex: 1; min-width: 0; }

@@ -336,6 +336,28 @@ async function cancelListing(collectionID, tokenId) {
   return signAndBroadcast(net().marketPkgPath, "Cancel", [collectionID, tokenId], "");
 }
 
+// Direct wallet-to-wallet transfer, bypassing the marketplace entirely —
+// no listing, no approval to the marketplace's address needed. Calls
+// TransferFrom on the REAL collection realm (realCollectionPath — the
+// same path OwnerOf/TokenURI reads already use, never a satellite
+// adapter's path: an adapter's TransferFrom expects to be called BY the
+// adapter itself during a Buy, not directly by a seller). TransferFrom
+// (from == to == the caller's own address for a self-initiated transfer)
+// rather than a bare Transfer(to, tid): confirmed live against the real
+// Gems collection that it has no such convenience function, only the
+// GRC721-standard TransferFrom/SafeTransferFrom pair — this is the one
+// entrypoint good general-purpose evidence says is actually there on any
+// real collection, not just this project's own test fixtures.
+//
+// If tid is currently listed on this marketplace, this leaves that
+// listing stale (same as any other out-of-band move — see nftmarketv2's
+// PruneStale doc comment) since nothing here is escrowed; the caller is
+// expected to warn about that before calling this, not this function.
+async function transferToken(realCollectionPath, from, to, tokenId, onStatus) {
+  onStatus?.("Sending… (check Adena)");
+  return signAndBroadcast(realCollectionPath, "TransferFrom", [from, to, tokenId], "");
+}
+
 // Injects the pill markup into `container` and wires it up. Call once per
 // page, after shared.js has loaded.
 function initWalletPill(container) {
