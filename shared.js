@@ -86,17 +86,22 @@ const CONFIG = {
 // collectionID nothing was ever registered against). Keyed by real path,
 // one entry per satellite adapter that exists.
 const SATELLITE_ADAPTERS = {
-  // v4: re-deployed after v3 exhibited an unexplained discrepancy between
-  // qeval reads (always showed the approval as correct) and .app/simulate /
-  // a real transaction (consistently panicked with "not approved" anyway)
-  // — reproduced independently multiple times with throwaway test
-  // collections, ruling out Adena, caching, and the app's own JS. A freshly
-  // deployed+registered+approved adapter tested clean in the same
-  // controlled reproduction where v3's older registration didn't, so this
-  // is a live, unproven-but-actionable mitigation, not a confirmed root
-  // cause. v3/v2/v1 registrations are still on-chain but dead/excluded.
+  // v5: v3/v4 both used chain/runtime/unsafe's CurrentRealm().Address() to
+  // find "this adapter's own address," and hit a real, reproducible bug:
+  // a direct qeval call always resolved the correct address, but the SAME
+  // expression reached through nftmarketv2.List()'s nested market.NFT
+  // interface dispatch during .app/simulate (and thus a real Adena
+  // broadcast) resolved to something that made the approval check fail —
+  // reproduced independently via gnoclient.Client.Simulate() against the
+  // real seller/token, so v4 being a fresh deploy was NOT what mattered.
+  // v5 removes CurrentRealm() entirely in favor of chain.PackageAddress
+  // (a pure hash of a compile-time pkgpath literal, no call-stack
+  // dependency) — verified before deploying that it derives the exact
+  // same address CurrentRealm() had been returning. See
+  // satellites/README.md for the full writeup. v1-v4 registrations are
+  // still on-chain but dead/excluded.
   "gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7":
-    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv4",
+    "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv5",
 };
 
 // The collectionID a "View NFTs"/item link should actually use — the

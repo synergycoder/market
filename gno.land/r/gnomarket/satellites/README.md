@@ -71,7 +71,7 @@ marketplace and has no way to repoint itself — there's no such thing as
 bump means every satellite adapter needs its own fresh deploy too, even
 though nothing about the adapter's own logic changed.
 
-## An unexplained qeval-vs-simulate discrepancy (v3 -> v4, unresolved root cause)
+## A CurrentRealm()-under-nested-dispatch bug (v3 -> v4 -> v5)
 
 v3 hit a real, independently-reproduced bug: `vm/qeval` reads always showed
 a seller's approval as correct (`IsApprovedForAll` → `true`), but the exact
@@ -81,26 +81,51 @@ panicked with "marketplace is not approved to transfer this token" anyway.
 Reproduced independently multiple times with disposable test collections
 (bypassing Adena, the frontend, and the real seller's wallet entirely) to
 rule out caching, Adena's own RPC/simulation behavior, and anything in this
-project's own JavaScript. Narrowed to a real discrepancy between `qeval`
-and `.app/simulate`/real execution specifically for `IsApprovedForAll`
-called through an adapter's interface dispatch — but NOT reliably, since a
-structurally-identical freshly-deployed-and-approved adapter tested clean
-in the same reproduction where an older registration didn't. The working
-theory is some kind of staleness in how `.app/simulate` resolves state for
-adapter-mediated approval checks, but this was never conclusively isolated
-to a single cause before time ran out on the investigation — treat v4 as a
-live mitigation (fresh deploy + fresh registration tested clean), not a
-confirmed fix. If this recurs, the next place to look is whether Gno's own
-node/VM has a known simulate-state-staleness issue, since every avenue
-inside this codebase's own control was ruled out first.
+project's own JavaScript.
+
+v4 tried "redeploy fresh" as a mitigation, based on a controlled test where
+a freshly-deployed-and-approved adapter succeeded where an older
+registration didn't. That theory turned out wrong: v4, deployed fresh and
+genuinely approved by the real seller on-chain (confirmed both directions —
+`g7.IsApprovedForAll(seller, v4Addr)` and `gemsg7adapterv4.
+IsApprovedForAll(seller, marketAddr)` both returned `true` via `qeval`) —
+still failed identically through `.app/simulate`, reproduced independently
+via `gnoclient.Client.Simulate()` against the real seller address and real
+token. Freshness was never the variable that mattered.
+
+Root cause, now isolated: v3/v4's `ApprovalTarget`/`ApprovalOperator`/
+`IsApprovedForAll` all used `chain/runtime/unsafe`'s `CurrentRealm().
+Address()` to find "this adapter's own address." A direct `qeval` call to
+that same expression always resolved correctly. But the identical
+expression, reached through `nftmarketv2.List()`'s nested `market.NFT`
+interface dispatch (`nft.IsApprovedForAll(...)` where `nft` is an interface
+value backed by the adapter, one hop deeper than a direct call) and
+executed via `.app/simulate` specifically, resolved to something that made
+the approval check fail. `vm/qeval` calling `IsApprovedForAll` directly
+apparently doesn't go through the same call shape, so it never observed
+the bug. v5 removes `CurrentRealm()` from these functions entirely,
+replacing it with `chain.PackageAddress(selfPkgPath)` — a pure hash of a
+compile-time pkgpath string literal (`gno.DerivePkgBech32Addr` under the
+hood, the same derivation gno.land itself uses to assign a package's
+address at deploy time), with no notion of "current call stack" for
+nested dispatch to disturb. Verified independently before deploying v5
+that `chain.PackageAddress(v4's own pkgpath)` computes the exact same
+address v4's `CurrentRealm()` calls had been returning — confirming this
+is the correct formula, not a different address that would just move the
+bug elsewhere. This is a real, mechanism-level fix, not a freshness-based
+mitigation like v4 was — though the underlying `CurrentRealm()` behavior
+under nested interface dispatch during `.app/simulate` is itself still an
+open question worth reporting upstream if it recurs anywhere else in this
+codebase.
 
 ## Existing adapters
 
-- `gemsg7adapterv4/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
-  ("Gems"), sapphire-1 testnet, registered with `nftmarketv2`. (v1 shipped
-  without the defensive `GetApproved`/`IsApprovedForAll` handling above and
-  panicked on every trade; v2 fixed that but was still registered with the
-  original `nftmarket`, superseded by `nftmarketv2`; v3 re-registered
-  against `nftmarketv2` but hit the qeval-vs-simulate issue described above.
-  v1/v2/v3's registrations are still on-chain but dead/excluded from the
-  frontend and cache.)
+- `gemsg7adapterv5/` — wraps `gno.land/r/g17cjym5e9hhws46lt6329pv2gtx2ay0503hgems/g7`
+  ("Gems"), sapphire-1 testnet, registered with `nftmarketv2`. Uses
+  `chain.PackageAddress` instead of `CurrentRealm()` (see above). (v1
+  shipped without the defensive `GetApproved`/`IsApprovedForAll` handling
+  above and panicked on every trade; v2 fixed that but was still
+  registered with the original `nftmarket`, superseded by `nftmarketv2`;
+  v3 and v4 both hit the `CurrentRealm()`-under-nested-dispatch bug
+  described above. v1-v4's registrations are still on-chain but
+  dead/excluded from the frontend and cache.)

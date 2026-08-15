@@ -41,8 +41,9 @@ const NETWORKS = {
 const SATELLITE_ADAPTER_PATHS = new Set([
   "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapter", // v1 — superseded, still deployed (immutable), excluded so it doesn't linger as a stale duplicate row
   "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv2", // v2 — superseded by v3, same reasoning
-  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3", // v3 — superseded by v4 after an unexplained qeval-vs-simulate discrepancy, same reasoning
-  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv4", // v4 — current, also excluded (same "would otherwise show up as a duplicate" reasoning applies whether an adapter is live or dead)
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv3", // v3 — superseded by v5 after a CurrentRealm()-under-nested-dispatch bug, same reasoning
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv4", // v4 — same bug (fresh deploy alone didn't fix it), superseded by v5
+  "gno.land/r/g1jkkpd3jyzzn8zz0jd8tmzewxxq9ysn67nhc35z/gemsg7adapterv5", // v5 — current, also excluded (same "would otherwise show up as a duplicate" reasoning applies whether an adapter is live or dead)
 ]);
 
 // Deployed to sapphire-1 purely to end-to-end-test the real approve/list
