@@ -64,12 +64,6 @@
       <div class="toolbar">
         <input type="text" id="searchInput" placeholder="Search listings…" style="min-width:12rem;" />
         <select id="collectionFilter"><option value="">All collections</option></select>
-        <select id="sortSelect">
-          <option value="date-desc">Newest first</option>
-          <option value="date-asc">Oldest first</option>
-          <option value="price-asc">Price: low to high</option>
-          <option value="price-desc">Price: high to low</option>
-        </select>
         <label style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
           <input type="checkbox" id="favoritesOnlyCheckbox" /> Favorites only
         </label>
@@ -82,9 +76,22 @@
           <option value="300000">Auto-refresh: 5 min</option>
         </select>
         <button id="refreshBtn" class="secondary">Refresh</button>
+        <label class="sort-label">
+          Sort by
+          <select id="sortSelect">
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="price-asc">Price: low to high</option>
+            <option value="price-desc">Price: high to low</option>
+          </select>
+        </label>
         <div class="view-toggle">
-          <button id="viewGridLarge" class="active" title="Large grid">▦</button>
-          <button id="viewGridSmall" title="Small grid">▤</button>
+          <button id="viewGridLarge" class="active" title="Large grid">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+          </button>
+          <button id="viewGridSmall" title="Small grid">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="1" y="1" width="4" height="4" rx="0.75"/><rect x="6" y="1" width="4" height="4" rx="0.75"/><rect x="11" y="1" width="4" height="4" rx="0.75"/><rect x="1" y="6" width="4" height="4" rx="0.75"/><rect x="6" y="6" width="4" height="4" rx="0.75"/><rect x="11" y="6" width="4" height="4" rx="0.75"/><rect x="1" y="11" width="4" height="4" rx="0.75"/><rect x="6" y="11" width="4" height="4" rx="0.75"/><rect x="11" y="11" width="4" height="4" rx="0.75"/></svg>
+          </button>
           <button id="viewList" title="List">☰</button>
         </div>
       </div>
