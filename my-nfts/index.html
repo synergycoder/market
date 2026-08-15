@@ -365,14 +365,24 @@ async function loadMyNfts() {
 
   await mapLimit(collections, 4, async (c) => {
     if (myGeneration !== scanGeneration) return;
-    let balance = 0;
+    // BalanceOf is a GRC721 convention, not something market.NFT itself
+    // requires (see collections.html's own note on this) — a collection
+    // is free not to implement it. A FAILED call is not the same as a
+    // confirmed zero: treating "no BalanceOf" as "definitely owns
+    // nothing" used to skip enumeration entirely for any such collection,
+    // silently hiding real tokens a wallet genuinely held (confirmed live:
+    // demonft has no BalanceOf, and a token transferred into a wallet
+    // never showed up here at all until this distinction was made). Only
+    // a call that actually succeeds and reports <= 0 is trusted to skip
+    // the expensive enumeration below.
+    let knownEmpty = false;
     try {
       const [b] = parseGnoLines(await qevalOn(c.path, `BalanceOf(${JSON.stringify(me)})`));
-      if (typeof b === "number" && b > 0) balance = b;
-    } catch { /* no BalanceOf, or it errored — treat as zero, not fatal */ }
+      if (typeof b === "number") knownEmpty = b <= 0;
+    } catch { /* no BalanceOf, or it errored — unknown, not confirmed empty; enumerate to be sure */ }
     checked++;
     updateStatus();
-    if (balance <= 0 || myGeneration !== scanGeneration) return;
+    if (knownEmpty || myGeneration !== scanGeneration) return;
 
     // Only now enumerate this collection's actual tokens — BalanceOf just
     // told us a positive count exists, not which IDs, and enumeration is
